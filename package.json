@@ -1,0 +1,16 @@
+{
+  "name": "@easecloud/mageperf",
+  "version": "0.1.0",
+  "description": "EaseCloud Magento Performance Analyzer CLI",
+  "bin": {
+    "mageperf": "bin/mageperf.js"
+  },
+  "files": ["bin/"],
+  "engines": { "node": ">=18" },
+  "keywords": ["magento", "performance", "cli", "easecloud"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/easecloud/mageperf"
+  }
+}

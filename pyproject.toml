@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "easecloud-mageperf"
+version = "0.1.0"
+description = "Free, open-source Magento performance analysis CLI by EaseCloud"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["magento", "performance", "cli", "easecloud"]
+dependencies = [
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "httpx>=0.28.0",
+    "beautifulsoup4>=4.12.0",
+    "dnspython>=2.4.0",
+]
+
+[project.scripts]
+mageperf = "mageperf.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mageperf"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
