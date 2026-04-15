@@ -19,6 +19,8 @@ htmlcov/
 ui/node_modules/
 ui/.next/
 ui/out/
+ui/tsconfig.tsbuildinfo
+ui/next-env.d.ts
 
 # OS
 .DS_Store
