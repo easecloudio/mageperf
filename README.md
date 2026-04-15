@@ -1,6 +1,6 @@
 # mageperf
 
-**Free, open-source Magento performance analysis CLI by [EaseCloud](https://easecloud.io)**
+**Free, open-source Magento performance analysis CLI by [EaseCloud](https://www.easecloud.io)**
 
 `mageperf` scans any Magento 2 store from your terminal — no account, no cloud, no data leaving your machine. It checks performance, security posture, and configuration best practices, then saves reports locally and optionally opens a browser UI.
 
@@ -71,24 +71,24 @@ mageperf serve
 
 ## Commands
 
-| Command | Description |
-|---|---|
-| `mageperf analyze <url>` | Run a full analysis |
-| `mageperf list` | List saved reports |
-| `mageperf open <id>` | Open a report in the browser UI |
-| `mageperf serve` | Start the local report UI server |
-| `mageperf clean` | Delete all saved reports |
-| `mageperf config set <key> <value>` | Set a config value |
-| `mageperf config get <key>` | Get a config value |
+| Command                             | Description                      |
+| ----------------------------------- | -------------------------------- |
+| `mageperf analyze <url>`            | Run a full analysis              |
+| `mageperf list`                     | List saved reports               |
+| `mageperf open <id>`                | Open a report in the browser UI  |
+| `mageperf serve`                    | Start the local report UI server |
+| `mageperf clean`                    | Delete all saved reports         |
+| `mageperf config set <key> <value>` | Set a config value               |
+| `mageperf config get <key>`         | Get a config value               |
 
 ### `analyze` options
 
-| Flag | Default | Description |
-|---|---|---|
-| `--format` | `summary` | Output format: `summary`, `json`, `table` |
-| `--output <file>` | — | Write JSON report to a file |
-| `--open` | off | Open browser UI after analysis |
-| `--no-pagespeed` | off | Skip Google PageSpeed API calls |
+| Flag              | Default   | Description                               |
+| ----------------- | --------- | ----------------------------------------- |
+| `--format`        | `summary` | Output format: `summary`, `json`, `table` |
+| `--output <file>` | —         | Write JSON report to a file               |
+| `--open`          | off       | Open browser UI after analysis            |
+| `--no-pagespeed`  | off       | Skip Google PageSpeed API calls           |
 
 ---
 
@@ -135,6 +135,8 @@ Overall Score: 74/100
 Report saved: ~/.easecloud/mageperf/reports/abc123.json
 ```
 
+> **Found critical issues?** EaseCloud provides [Magento performance optimization consulting](https://www.easecloud.io/magento-performance-optimization) — Core Web Vitals, caching strategy, infrastructure tuning, and more.
+
 ---
 
 ## Development
@@ -177,6 +179,16 @@ package.json        npm wrapper (@easecloud/mageperf)
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## Work with EaseCloud
+
+`mageperf` finds the problems. Need help fixing them?
+
+We offer end-to-end [Magento performance optimization](https://www.easecloud.io/magento-performance-optimization) — from diagnosis to implementation across caching, Core Web Vitals, infrastructure, and deployment.
+
+Contact: [support@easecloud.io](mailto:support@easecloud.io) · [easecloud.io](https://easecloud.io)
 
 ---
 
