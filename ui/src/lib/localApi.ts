@@ -47,6 +47,20 @@ const API_BASE =
     ? process.env.NEXT_PUBLIC_API_BASE
     : "http://localhost:4780";
 
+/** A single finding entry from the CLI report. */
+export interface ReportFinding {
+  severity?: "critical" | "high" | "medium" | "low" | "info";
+  priority?: number;
+  recommendation?: string;
+  category?: string;
+  [key: string]: unknown;
+}
+
+/** A single recommendation entry — either a structured dict or a plain string. */
+export type ReportRecommendation =
+  | { priority?: number; severity?: string; category?: string; recommendation?: string; [key: string]: unknown }
+  | string;
+
 /** Shape saved by the CLI ReportStore */
 export interface CliReport {
   id: string;
@@ -61,14 +75,27 @@ export interface CliReport {
     security: number;
     config: number;
   };
-  findings: unknown[];
-  recommendations: unknown[];
+  findings: ReportFinding[];
+  recommendations: ReportRecommendation[];
   raw?: {
     magento_detection?: Record<string, unknown>;
     magento_analysis?: Record<string, unknown>;
     performance?: Record<string, unknown>;
     scores?: Record<string, unknown>;
   };
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isCliReport(v: unknown): v is CliReport {
+  if (!isRecord(v)) return false;
+  if (typeof v.id !== "string" || typeof v.url !== "string") return false;
+  if (typeof v.created_at !== "string" || typeof v.status !== "string") return false;
+  if (typeof v.overall_score !== "number") return false;
+  if (!isRecord(v.scores)) return false;
+  return true;
 }
 
 /**
@@ -115,8 +142,8 @@ export interface UiReport {
       raw_data?: PerformanceRawData;
       categories?: Record<string, unknown>;
     };
-    findings: unknown[];
-    recommendations: unknown[] | {
+    findings: ReportFinding[];
+    recommendations: ReportRecommendation[] | {
       critical?: Array<{ category?: string; effort?: string; impact?: string; priority?: number; [key: string]: unknown }>;
       high?: Array<{ category?: string; effort?: string; impact?: string; priority?: number; [key: string]: unknown }>;
       medium?: Array<{ category?: string; effort?: string; impact?: string; priority?: number; [key: string]: unknown }>;
@@ -149,15 +176,9 @@ function adaptReport(r: CliReport): UiReport {
   const scoresRaw = (raw.scores ?? {}) as Record<string, unknown>;
   const categoryScores = (scoresRaw.category_scores ?? {}) as Record<string, number>;
 
-  const findings = r.findings ?? [];
+  const findings: ReportFinding[] = r.findings ?? [];
   const criticalFindings = findings.filter(
-    (f: unknown) =>
-      f !== null &&
-      typeof f === "object" &&
-      (
-        (f as Record<string, unknown>).severity === "critical" ||
-        (f as Record<string, unknown>).priority === "critical"
-      )
+    (f) => f.severity === "critical" || f.priority === 5
   );
 
   // Build breakdown scores from category_scores
@@ -219,13 +240,15 @@ function adaptReport(r: CliReport): UiReport {
 export async function fetchReports(): Promise<UiReport[]> {
   const res = await fetch(`${API_BASE}/api/reports`);
   if (!res.ok) throw new Error("Failed to fetch reports");
-  const data: CliReport[] = await res.json();
-  return data.map(adaptReport);
+  const raw: unknown = await res.json();
+  if (!Array.isArray(raw)) throw new Error("Unexpected response shape: expected array");
+  return raw.filter(isCliReport).map(adaptReport);
 }
 
 export async function fetchReport(id: string): Promise<UiReport> {
   const res = await fetch(`${API_BASE}/api/reports/${id}`);
   if (!res.ok) throw new Error(`Report ${id} not found`);
-  const data: CliReport = await res.json();
-  return adaptReport(data);
+  const raw: unknown = await res.json();
+  if (!isCliReport(raw)) throw new Error(`Malformed report data for id: ${id}`);
+  return adaptReport(raw);
 }

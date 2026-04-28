@@ -163,6 +163,8 @@ class ScoringService:
             return "B"
         elif score >= self.SCORE_THRESHOLDS["needs_improvement"]:
             return "C"
+        elif score >= 25:
+            return "D"
         else:
             return "F"
     
@@ -358,20 +360,6 @@ class ScoringService:
             
         # Default to medium
         return "medium"
-    
-    def _determine_priority(self, category: str, score: float) -> int:
-        """Legacy method - Determine priority based on category and score."""
-        # Higher priority for lower scores
-        if score < 30:
-            return 5  # Critical
-        elif score < 50:
-            return 4  # High
-        elif score < 70:
-            return 3  # Medium
-        elif score < 85:
-            return 2  # Low
-        else:
-            return 1  # Info
     
     def _create_score_breakdown(self, category_scores: Dict[str, float]) -> Dict[str, Any]:
         """Create detailed score breakdown for transparency."""

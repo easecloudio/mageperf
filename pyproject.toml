@@ -9,7 +9,18 @@ description = "Free, open-source Magento performance analysis CLI by EaseCloud"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
+authors = [{ name = "EaseCloud", email = "support@easecloud.io" }]
 keywords = ["magento", "performance", "cli", "easecloud"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Topic :: Internet :: WWW/HTTP :: Site Management",
+    "Topic :: System :: Monitoring",
+]
 dependencies = [
     "typer>=0.12.0",
     "rich>=13.0.0",
@@ -18,8 +29,21 @@ dependencies = [
     "dnspython>=2.4.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-mock>=3.0.0",
+    "httpx>=0.28.0",
+]
+
 [project.scripts]
 mageperf = "mageperf.cli:app"
+
+[project.urls]
+Homepage = "https://easecloud.io"
+Repository = "https://github.com/easecloudio/mageperf"
+"Bug Tracker" = "https://github.com/easecloudio/mageperf/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["mageperf"]
@@ -27,3 +51,4 @@ packages = ["mageperf"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

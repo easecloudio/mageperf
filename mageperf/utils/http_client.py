@@ -1,15 +1,24 @@
 import asyncio
-import httpx
 from typing import Optional
+
+import httpx
+
 from mageperf.utils.logger import logger
 
 
 class HTTPClient:
     _client: Optional[httpx.AsyncClient] = None
+    _timeout_seconds: float = 20.0
+
+    def override_timeout(self, seconds: float) -> None:
+        """Set a custom timeout. Must be called before the first request."""
+        self._timeout_seconds = seconds
+        self._client = None  # Force recreation with new timeout
 
     def get_client(self) -> httpx.AsyncClient:
         if self._client is None:
-            timeout = httpx.Timeout(timeout=20.0, connect=10.0, read=20.0, write=10.0)
+            t = self._timeout_seconds
+            timeout = httpx.Timeout(timeout=t, connect=10.0, read=t, write=10.0)
             limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
             self._client = httpx.AsyncClient(
                 timeout=timeout,
@@ -31,17 +40,21 @@ class HTTPClient:
         backoff_factor: float = 1.0,
         **kwargs,
     ) -> httpx.Response:
-        """Perform GET request with exponential backoff retry logic."""
+        """GET with exponential-backoff retry on any httpx network error."""
+        if max_retries < 1:
+            raise ValueError(f"max_retries must be >= 1, got {max_retries}")
         client = self.get_client()
-        last_error = None
+        last_error: Optional[Exception] = None
         for attempt in range(max_retries):
             try:
-                response = await client.get(url, **kwargs)
-                return response
-            except (httpx.ConnectError, httpx.TimeoutException) as e:
-                last_error = e
+                return await client.get(url, **kwargs)
+            except httpx.HTTPError as exc:
+                last_error = exc
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(backoff_factor * (2 ** attempt))
+                    await asyncio.sleep(backoff_factor * (2**attempt))
+                else:
+                    logger.debug("GET %s failed after %d attempts: %s", url, max_retries, exc)
+        assert last_error is not None
         raise last_error
 
     async def head_with_retry(
@@ -51,17 +64,21 @@ class HTTPClient:
         backoff_factor: float = 1.0,
         **kwargs,
     ) -> httpx.Response:
-        """Perform HEAD request with exponential backoff retry logic."""
+        """HEAD with exponential-backoff retry on any httpx network error."""
+        if max_retries < 1:
+            raise ValueError(f"max_retries must be >= 1, got {max_retries}")
         client = self.get_client()
-        last_error = None
+        last_error: Optional[Exception] = None
         for attempt in range(max_retries):
             try:
-                response = await client.head(url, **kwargs)
-                return response
-            except (httpx.ConnectError, httpx.TimeoutException) as e:
-                last_error = e
+                return await client.head(url, **kwargs)
+            except httpx.HTTPError as exc:
+                last_error = exc
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(backoff_factor * (2 ** attempt))
+                    await asyncio.sleep(backoff_factor * (2**attempt))
+                else:
+                    logger.debug("HEAD %s failed after %d attempts: %s", url, max_retries, exc)
+        assert last_error is not None
         raise last_error
 
 

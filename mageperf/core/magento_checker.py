@@ -7,27 +7,15 @@ optimization, and extension detection.
 
 import asyncio
 import re
-from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
+from mageperf.core.models import CheckResult
 from mageperf.utils.http_client import http_client
 from mageperf.utils.logger import logger
-
-@dataclass
-class CheckResult:
-    """Dataclass for storing the result of a single check category."""
-    category: str
-    score: float
-    details: Dict[str, Any]
-    recommendations: List[str]
-    error: Optional[str] = None
-
-    def to_dict(self):
-        return asdict(self)
 
 
 class MagentoChecker:
@@ -42,6 +30,8 @@ class MagentoChecker:
     }
     
     def __init__(self):
+        self._page_cache: Dict[str, Any] = {}
+
         # Common Magento paths and indicators
         self.magento_paths = [
             '/pub/static/',
@@ -421,346 +411,32 @@ class MagentoChecker:
                 "details": []
             }
     
-    async def check_magento_configuration(self, url: str) -> Dict[str, Any]:
-        """
-        Check Magento configuration indicators:
-        - Production mode detection
-        - Static file signing
-        - Maintenance flags
-        """
-        try:
-            logger.info(f"Checking Magento configuration for {url}")
-            
-            prod_mode_result = await self._check_production_mode(url)
-            static_signing_result = await self._check_static_file_signing(url)
-            maintenance_result = await self._check_maintenance_mode(url)
-            dev_mode_result = await self._check_developer_mode(url)
-            
-            config_results = {
-                "production_mode": prod_mode_result,
-                "static_file_signing": static_signing_result,
-                "maintenance_mode": maintenance_result,
-                "developer_mode_indicators": dev_mode_result
-            }
-            
-            # Calculate overall configuration score
-            score = 0
-            if prod_mode_result.get("is_production", False):
-                score += 40
-            if static_signing_result.get("enabled", False):
-                score += 30
-            if not maintenance_result.get("in_maintenance", True):
-                score += 20
-            if not dev_mode_result.get("found", True):
-                score += 10
-            
-            config_results["overall_score"] = score
-            config_results["recommendations"] = self._generate_config_recommendations(config_results)
-            
-            return config_results
-            
-        except Exception as e:
-            logger.error(f"Error checking Magento configuration for {url}: {e}")
-            return {"error": str(e)}
-    
-    async def _check_production_mode(self, url: str) -> Dict[str, Any]:
-        """Check if Magento is in production mode."""
-        try:
-            # Check if var/log directory is accessible (should be blocked in production)
-            log_url = urljoin(url, '/var/log/')
-            response = await http_client.head_with_retry(log_url, max_retries=1)
-            
-            # In production, this should return 403/404, not 200
-            is_production = response.status_code in [403, 404]
-            
-            details = [f"var/log/ directory access: HTTP {response.status_code}"]
-            
-            # Additional checks
-            main_response = await http_client.get_with_retry(url)
-            if main_response.status_code == 200:
-                # Look for debug indicators in HTML
-                html_lower = main_response.text.lower()
-                
-                if 'developer mode' not in html_lower and 'debug' not in html_lower:
-                    details.append("No debug indicators in HTML")
-                else:
-                    is_production = False
-                    details.append("Debug indicators found in HTML")
-            
-            return {
-                "is_production": is_production,
-                "confidence": 80 if is_production else 60,
-                "details": details
-            }
-            
-        except Exception as e:
-            logger.error(f"Error checking production mode: {e}")
-            return {
-                "is_production": None,
-                "confidence": 0,
-                "error": str(e)
-            }
-    
-    async def _check_static_file_signing(self, url: str) -> Dict[str, Any]:
-        """Check if static files include version hash in URLs."""
-        try:
-            response = await http_client.get_with_retry(url)
-            
-            if response.status_code != 200:
-                return {"enabled": None, "details": ["Could not fetch page"]}
-            
-            # Look for version hash in static asset URLs
-            version_pattern = r'/static/version\d+/'
-            static_pattern = r'/pub/static/version\d+/'
-            
-            version_matches = len(re.findall(version_pattern, response.text))
-            static_matches = len(re.findall(static_pattern, response.text))
-            
-            total_matches = version_matches + static_matches
-            enabled = total_matches > 0
-            
-            details = []
-            if enabled:
-                details.append(f"Found {total_matches} versioned static assets")
-            else:
-                details.append("No versioned static assets found")
-            
-            return {
-                "enabled": enabled,
-                "version_matches": total_matches,
-                "details": details
-            }
-            
-        except Exception as e:
-            logger.error(f"Error checking static file signing: {e}")
-            return {"enabled": None, "error": str(e)}
-    
-    async def _check_maintenance_mode(self, url: str) -> Dict[str, Any]:
-        """Check if site is in maintenance mode."""
-        try:
-            response = await http_client.get_with_retry(url)
-            
-            # Check response for maintenance indicators
-            is_maintenance = False
-            details = []
-            
-            if response.status_code == 503:
-                is_maintenance = True
-                details.append("HTTP 503 Service Unavailable")
-            
-            if 'maintenance' in response.text.lower():
-                is_maintenance = True
-                details.append("Maintenance message in content")
-            
-            # Check for deployed_version.txt
-            try:
-                version_url = urljoin(url, '/pub/static/deployed_version.txt')
-                version_response = await http_client.head_with_retry(version_url, max_retries=1)
-                if version_response.status_code == 200:
-                    details.append("deployed_version.txt accessible")
-            except Exception:
-                pass
-            
-            return {
-                "in_maintenance": is_maintenance,
-                "status_code": response.status_code,
-                "details": details
-            }
-            
-        except Exception as e:
-            logger.error(f"Error checking maintenance mode: {e}")
-            return {"in_maintenance": None, "error": str(e)}
-    
-    async def _check_developer_mode(self, url: str) -> Dict[str, Any]:
-        """Check for developer mode indicators."""
-        try:
-            response = await http_client.get_with_retry(url)
-            
-            if response.status_code != 200:
-                return {"found": None, "details": ["Could not fetch page"]}
-            
-            developer_indicators = []
-            html_lower = response.text.lower()
-            
-            # Common developer mode indicators
-            dev_patterns = [
-                ('profiler', 'Magento profiler'),
-                ('xdebug', 'Xdebug'),
-                ('developer mode', 'Developer mode text'),
-                ('debug', 'Debug indicators'),
-                ('var_dump', 'var_dump output'),
-                ('exception.log', 'Exception log references')
-            ]
-            
-            for pattern, description in dev_patterns:
-                if pattern in html_lower:
-                    developer_indicators.append(description)
-            
-            return {
-                "found": len(developer_indicators) > 0,
-                "indicators": developer_indicators,
-                "details": developer_indicators
-            }
-            
-        except Exception as e:
-            logger.error(f"Error checking developer mode: {e}")
-            return {"found": None, "error": str(e)}
-    
-    def _generate_config_recommendations(self, config_results: Dict) -> List[str]:
-        """Generate configuration recommendations."""
-        recommendations = []
-        
-        if not config_results.get("production_mode", {}).get("is_production"):
-            recommendations.append("Enable production mode for better performance and security")
-        
-        if not config_results.get("static_file_signing", {}).get("enabled"):
-            recommendations.append("Enable static file signing for better caching")
-        
-        if config_results.get("developer_mode_indicators", {}).get("found"):
-            recommendations.append("Disable developer mode indicators in production")
-        
-        if config_results.get("maintenance_mode", {}).get("in_maintenance"):
-            recommendations.append("Site appears to be in maintenance mode")
-        
-        return recommendations
-    
-    async def check_magento_security(self, url: str) -> Dict[str, Any]:
-        """
-        Check Magento security configuration.
-        Focus on HTTP security headers and avoid sensitive file checks.
-        """
-        try:
-            logger.info(f"Checking Magento security for {url}")
-            
-            response = await http_client.get_with_retry(url)
-            headers = dict(response.headers)
-            
-            security_results = {
-                "http_security_headers": self._analyze_security_headers(headers),
-                "admin_path_security": await self._check_admin_path_security(url, response.text),
-                "overall_score": 0
-            }
-            
-            # Calculate security score
-            header_score = security_results["http_security_headers"]["score"]
-            admin_score = security_results["admin_path_security"]["score"]
-            
-            security_results["overall_score"] = (header_score + admin_score) / 2
-            security_results["recommendations"] = self._generate_security_recommendations(security_results)
-            
-            return security_results
-            
-        except Exception as e:
-            logger.error(f"Error checking Magento security for {url}: {e}")
-            return {"error": str(e)}
-    
-    def _analyze_security_headers(self, headers: Dict[str, str]) -> Dict[str, Any]:
-        """Analyze HTTP security headers."""
-        security_headers = {
-            'strict-transport-security': 'HSTS',
-            'x-frame-options': 'Clickjacking protection',
-            'x-content-type-options': 'MIME sniffing protection',
-            'x-xss-protection': 'XSS protection',
-            'content-security-policy': 'Content Security Policy',
-            'referrer-policy': 'Referrer Policy'
-        }
-        
-        results = {"headers": {}, "score": 0, "missing": []}
-        
-        for header_name, description in security_headers.items():
-            header_value = None
-            for key, value in headers.items():
-                if key.lower() == header_name:
-                    header_value = value
-                    break
-            
-            if header_value:
-                results["headers"][header_name] = {
-                    "present": True,
-                    "value": header_value,
-                    "description": description
-                }
-                results["score"] += 100 / len(security_headers)
-            else:
-                results["headers"][header_name] = {
-                    "present": False,
-                    "description": description
-                }
-                results["missing"].append(description)
-        
-        return results
-    
-    async def _check_admin_path_security(self, url: str, html_content: str) -> Dict[str, Any]:
-        """
-        Check admin path security (non-invasive).
-        Only check publicly available information.
-        """
-        try:
-            admin_indicators = []
-            score = 100  # Start with perfect score
-            
-            # Check robots.txt for admin path disclosure
-            try:
-                robots_url = urljoin(url, '/robots.txt')
-                robots_response = await http_client.get_with_retry(robots_url, max_retries=1)
-                
-                if robots_response.status_code == 200:
-                    robots_content = robots_response.text.lower()
-                    
-                    # Look for admin paths in robots.txt
-                    admin_paths = ['/admin', '/backend', '/management', '/administrator']
-                    for admin_path in admin_paths:
-                        if admin_path in robots_content:
-                            admin_indicators.append(f"Admin path disclosed in robots.txt: {admin_path}")
-                            score -= 30
-            except Exception:
-                pass
-            
-            # Check for admin references in HTML (only what's publicly visible)
-            html_lower = html_content.lower()
-            if '/admin' in html_lower:
-                # Only flag if it appears to be a direct link, not just in text
-                if 'href="/admin' in html_lower or "action='/admin" in html_lower:
-                    admin_indicators.append("Admin path visible in HTML links")
-                    score -= 20
-            
-            return {
-                "score": max(0, score),
-                "indicators": admin_indicators,
-                "details": admin_indicators if admin_indicators else ["No admin path disclosure found"]
-            }
-            
-        except Exception as e:
-            logger.error(f"Error checking admin path security: {e}")
-            return {"score": 50, "error": str(e)}
-    
-    def _generate_security_recommendations(self, security_results: Dict) -> List[str]:
-        """Generate security recommendations."""
-        recommendations = []
-        
-        # Header recommendations
-        missing_headers = security_results.get("http_security_headers", {}).get("missing", [])
-        for header in missing_headers:
-            recommendations.append(f"Implement {header} header")
-        
-        # Admin path recommendations
-        admin_indicators = security_results.get("admin_path_security", {}).get("indicators", [])
-        if admin_indicators:
-            recommendations.append("Hide admin path references from public view")
-            recommendations.append("Use custom admin path instead of default /admin")
-        
-        return recommendations
-    
+    async def _get_cached(self, url: str) -> Any:
+        """Fetch URL once per analysis run and cache the response."""
+        if url not in self._page_cache:
+            self._page_cache[url] = await http_client.get_with_retry(url)
+        return self._page_cache[url]
+
     async def run_all_checks(self, url: str, skip_invasive_checks: bool = True) -> Dict[str, Any]:
         """Run all Magento 2 specific checks."""
+        self._page_cache = {}  # Clear cache at the start of each analysis run
         logger.info(f"Starting all checks for {url} (invasive checks: {'disabled' if skip_invasive_checks else 'enabled'})")
         
         try:
-            config_check = await self.check_configuration(url)
-            security_check = await self.check_security(url, skip_invasive_checks=skip_invasive_checks)
-            optimization_check = await self.check_optimization(url)
-            extension_check = await self.check_extensions(url)
-            seo_check = await self.check_seo(url)
+            # Run all five category checks in parallel — they are fully independent
+            (
+                config_check,
+                security_check,
+                optimization_check,
+                extension_check,
+                seo_check,
+            ) = await asyncio.gather(
+                self.check_configuration(url),
+                self.check_security(url, skip_invasive_checks=skip_invasive_checks),
+                self.check_optimization(url),
+                self.check_extensions(url),
+                self.check_seo(url),
+            )
 
             checks = {
                 'configuration': config_check.to_dict(),
@@ -773,7 +449,7 @@ class MagentoChecker:
             results = {
                 "overall_score": self.calculate_overall_score(checks),
                 "categories": checks,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
             logger.info("All checks completed successfully.")
@@ -783,7 +459,7 @@ class MagentoChecker:
             logger.error(f"Error running all checks for {url}: {e}")
             return {
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
     async def check_configuration(self, url: str) -> CheckResult:
@@ -1156,46 +832,54 @@ class MagentoChecker:
         logger.info(f"Assessing image optimization for {url}")
         soup = BeautifulSoup(content, 'html.parser')
         images = soup.find_all('img')
-        
+
         total_images = len(images)
         lazy_loaded_images = 0
         responsive_images = 0
         modern_format_images = 0
         oversized_images = 0
-        
+
+        # Cap at 20 images for size checks; use a semaphore to limit concurrency
+        MAX_IMAGE_CHECKS = 20
+        semaphore = asyncio.Semaphore(5)
+
         for img in images:
-            # Check for lazy loading
             if img.get('loading') == 'lazy':
                 lazy_loaded_images += 1
-            
-            # Check for responsive images (srcset)
             if img.has_attr('srcset'):
                 responsive_images += 1
-            
-            # Check for modern formats (WebP)
             src = img.get('src', '')
             if src.endswith('.webp'):
                 modern_format_images += 1
-            
-            # Check image size (sample check)
-            if src:
-                try:
-                    full_url = urljoin(url, src)
-                    # Avoid checking data URIs
-                    if not full_url.startswith('data:'):
-                        response = await http_client.head_with_retry(full_url)
-                        size = int(response.headers.get('Content-Length', 0))
-                        if size > 200 * 1024:  # 200 KB
-                            oversized_images += 1
-                except Exception as e:
-                    logger.error(f"Could not check image size for {src}: {e}")
+
+        async def _check_image_size(src: str) -> bool:
+            """Return True if image is oversized (>200KB)."""
+            try:
+                full_url = urljoin(url, src)
+                if full_url.startswith('data:'):
+                    return False
+                async with semaphore:
+                    response = await http_client.head_with_retry(full_url, max_retries=1)
+                size = int(response.headers.get('Content-Length', 0))
+                return size > 200 * 1024
+            except Exception as exc:
+                logger.debug("Could not check image size for %s: %s", src, exc)
+                return False
+
+        srcs_to_check = [
+            img.get('src', '') for img in images
+            if img.get('src') and not img.get('src', '').startswith('data:')
+        ][:MAX_IMAGE_CHECKS]
+
+        results_list = await asyncio.gather(*[_check_image_size(s) for s in srcs_to_check])
+        oversized_images = sum(1 for r in results_list if r)
 
         return {
             "total_images": total_images,
             "lazy_loaded_images": lazy_loaded_images,
             "responsive_images": responsive_images,
             "modern_format_images": modern_format_images,
-            "oversized_images": oversized_images
+            "oversized_images": oversized_images,
         }
 
     def _calculate_configuration_score(self, results: Dict) -> float:

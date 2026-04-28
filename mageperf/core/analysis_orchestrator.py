@@ -7,22 +7,28 @@ Progress is reported via an optional callback(message, percent).
 import asyncio
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Callable
+from typing import Any, Callable, Dict, Optional
+
+# Import analyzers module to trigger @register_analyzer decorators
+import mageperf.core.analyzers  # noqa: F401
 
 from mageperf.core.magento_checker import get_magento_checker
-from mageperf.core.performance_checker import get_performance_checker
+from mageperf.core.models import get_registered_analyzers
 from mageperf.core.scoring_service import get_scoring_service
 from mageperf.utils.logger import logger
+from mageperf.utils.security import validate_url_not_ssrf
 
 
 ProgressCallback = Optional[Callable[[str, int], None]]
 
+_PRIORITY_TO_SEVERITY = {5: "critical", 4: "high", 3: "medium", 2: "low", 1: "info"}
+
 
 class AnalysisOrchestrator:
     def __init__(self, progress_callback: ProgressCallback = None):
-        self.magento_checker = get_magento_checker()
-        self.performance_checker = get_performance_checker()
-        self.scoring_service = get_scoring_service()
+        self._magento_checker = get_magento_checker()
+        self._scoring_service = get_scoring_service()
+        self._analyzers = [cls() for cls in get_registered_analyzers()]
         self._progress = progress_callback or (lambda msg, pct: None)
 
     async def run_full_analysis(
@@ -33,10 +39,22 @@ class AnalysisOrchestrator:
 
         self._progress("Starting analysis", 5)
 
-        # Layer 1: Magento detection
+        # SSRF guard
+        try:
+            validate_url_not_ssrf(url)
+        except ValueError as exc:
+            return {
+                "id": task_id,
+                "url": url,
+                "created_at": started_at.isoformat(),
+                "status": "failed",
+                "error": str(exc),
+            }
+
+        # Gate: Magento detection (must pass before running analyzers)
         self._progress("Detecting Magento", 15)
         try:
-            magento_detection = await self.magento_checker.detect_magento_presence(url)
+            magento_detection = await self._magento_checker.detect_magento_presence(url)
         except Exception as e:
             logger.error(f"Magento detection failed: {e}")
             magento_detection = {"is_magento": False, "error": str(e)}
@@ -50,53 +68,48 @@ class AnalysisOrchestrator:
                 "error": "Magento not detected at this URL",
             }
 
-        # Layer 2: Magento-specific checks
-        self._progress("Running Magento checks", 30)
-        try:
-            magento_analysis = await self.magento_checker.run_all_checks(
-                url, skip_invasive_checks=True
-            )
-        except Exception as e:
-            logger.error(f"Magento checks failed: {e}")
-            magento_analysis = {"error": str(e), "overall_score": 0, "categories": {}}
+        # Optional PageSpeed pre-fetch (runs before registry analyzers so results
+        # can be forwarded as kwargs to whichever analyzer needs them)
+        self._progress("Running performance checks", 30)
+        pagespeed_results: Optional[Dict[str, Any]] = None
+        if pagespeed_api_key:
+            try:
+                from mageperf.core.performance_checker import get_performance_checker
 
-        # Layer 3: Performance checks (parallel PageSpeed + HTTP checks)
-        self._progress("Running performance checks", 55)
-        try:
-            # Fetch PageSpeed data if an API key is configured
-            pagespeed_results: Optional[Dict[str, Any]] = None
-            if pagespeed_api_key:
+                pc = get_performance_checker()
                 desktop, mobile = await asyncio.gather(
-                    self.performance_checker.fetch_pagespeed_insights(
-                        url, strategy="desktop"
-                    ),
-                    self.performance_checker.fetch_pagespeed_insights(
-                        url, strategy="mobile"
-                    ),
+                    pc.fetch_pagespeed_insights(url, strategy="desktop", api_key=pagespeed_api_key),
+                    pc.fetch_pagespeed_insights(url, strategy="mobile", api_key=pagespeed_api_key),
                 )
                 pagespeed_results = {
                     "desktop_performance": desktop,
                     "mobile_performance": mobile,
                 }
+            except Exception as e:
+                logger.error(f"PageSpeed fetch failed: {e}")
 
-            performance_comprehensive = await self.performance_checker.run_all_checks(
-                url, pagespeed_results=pagespeed_results
-            )
-        except Exception as e:
-            logger.error(f"Performance checks failed: {e}")
-            performance_comprehensive = {"error": str(e), "overall_score": 0}
+        # Run all registered analyzers in parallel
+        self._progress("Running all checks", 55)
+        analyzer_kwargs: Dict[str, Any] = {"pagespeed_results": pagespeed_results}
 
-        # Layer 4: Scoring
-        self._progress("Calculating scores", 80)
-        analysis_results = {
+        async def _run_one(analyzer) -> tuple[str, Dict[str, Any]]:
+            try:
+                result = await analyzer.run(url, **analyzer_kwargs)
+            except Exception as e:
+                logger.error(f"Analyzer {analyzer.name!r} failed: {e}")
+                result = {"error": str(e), "overall_score": 0}
+            return analyzer.name, result
+
+        pairs = await asyncio.gather(*[_run_one(a) for a in self._analyzers])
+        analysis_results: Dict[str, Any] = {
             "magento_detection": magento_detection,
-            "magento_analysis": magento_analysis,
-            "performance_comprehensive": performance_comprehensive,
+            **{name: result for name, result in pairs},
         }
+
+        # Scoring
+        self._progress("Calculating scores", 80)
         try:
-            scores = self.scoring_service.calculate_comprehensive_score(
-                analysis_results
-            )
+            scores = self._scoring_service.calculate_comprehensive_score(analysis_results)
         except Exception as e:
             logger.error(f"Scoring failed: {e}")
             scores = {
@@ -108,16 +121,20 @@ class AnalysisOrchestrator:
 
         self._progress("Generating report", 95)
 
-        # Flatten findings (recommendations) from both layers
         findings: list = []
-        for category_data in magento_analysis.get("categories", {}).values():
-            if isinstance(category_data, dict):
-                findings.extend(category_data.get("recommendations", []))
-        for category_data in performance_comprehensive.get("categories", {}).values():
-            if isinstance(category_data, dict):
-                findings.extend(category_data.get("recommendations", []))
+        for rec in scores.get("recommendations", []):
+            if isinstance(rec, dict):
+                priority = rec.get("priority", 3)
+                rec["severity"] = _PRIORITY_TO_SEVERITY.get(priority, "medium")
+                findings.append(rec)
+            elif isinstance(rec, str):
+                findings.append({"recommendation": rec, "severity": "medium"})
+
+        magento_analysis = analysis_results.get("magento_analysis", {})
+        performance_comprehensive = analysis_results.get("performance_comprehensive", {})
 
         report = {
+            "schema_version": "1.0",
             "id": task_id,
             "url": url,
             "created_at": started_at.isoformat(),

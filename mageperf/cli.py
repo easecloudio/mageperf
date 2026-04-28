@@ -1,13 +1,19 @@
 import asyncio
 import json as json_lib
+import os
+import signal
+import sys
 from enum import Enum
+from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 import typer
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
+from mageperf import __version__
 from mageperf.core.analysis_orchestrator import get_orchestrator
 from mageperf.storage.store import ReportStore
 
@@ -18,21 +24,37 @@ app = typer.Typer(
 )
 console = Console()
 
+_PID_FILE = Path.home() / ".easecloud" / "mageperf" / "server.pid"
+
+
 @app.callback(invoke_without_command=True)
-def main():
+def main(
+    version: bool = typer.Option(
+        False, "--version", "-V", help="Show version and exit.", is_eager=True
+    ),
+    verbose: bool = typer.Option(False, "--verbose", help="Enable debug logging."),
+):
     """EaseCloud mageperf — Magento Performance CLI"""
-    pass
+    if version:
+        console.print(f"mageperf {__version__}")
+        raise typer.Exit()
+    if verbose:
+        import logging
+        from mageperf.utils.logger import logger as _logger
+        _logger.setLevel(logging.DEBUG)
+
 
 config_app = typer.Typer(help="Manage mageperf configuration")
 app.add_typer(config_app, name="config")
+
 
 @config_app.command("set")
 def config_set(key: str, value: str):
     """Set a configuration value."""
     import json as _json
     from mageperf.config import Config, DEFAULTS
-    key = key.replace("-", "_")  # normalize dash to underscore
-    # Coerce to the type of the default value if a default exists
+
+    key = key.replace("-", "_")
     default_val = DEFAULTS.get(key)
     if default_val is not None:
         try:
@@ -40,7 +62,6 @@ def config_set(key: str, value: str):
         except (ValueError, TypeError):
             typed_value = value
     else:
-        # Try JSON parse for unknown keys (handles int, float, bool)
         try:
             typed_value = _json.loads(value)
         except (_json.JSONDecodeError, ValueError):
@@ -48,11 +69,13 @@ def config_set(key: str, value: str):
     Config().set(key, typed_value)
     console.print(f"[green]✓[/green] {key} = {typed_value}")
 
+
 @config_app.command("get")
 def config_get(key: str):
     """Get a configuration value."""
     from mageperf.config import Config
-    key = key.replace("-", "_")  # normalize dash to underscore
+
+    key = key.replace("-", "_")
     val = Config().get(key)
     console.print(val if val is not None else "[dim]not set[/dim]")
 
@@ -63,6 +86,18 @@ class OutputFormat(str, Enum):
     table = "table"
 
 
+def _validate_url(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        hint = f"https://{url}" if "://" not in url else None
+        msg = f"URL must start with http:// or https:// (got: {url!r})."
+        if hint:
+            msg += f" Did you mean: {hint}"
+        raise typer.BadParameter(msg, param_hint="url")
+    if not parsed.netloc:
+        raise typer.BadParameter(f"URL is missing a hostname: {url!r}", param_hint="url")
+
+
 @app.command()
 def analyze(
     url: str = typer.Argument(..., help="Magento store URL to analyze"),
@@ -70,28 +105,47 @@ def analyze(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Write JSON to file"),
     open_browser: bool = typer.Option(False, "--open", help="Open browser UI after analysis"),
     no_pagespeed: bool = typer.Option(False, "--no-pagespeed", help="Skip PageSpeed API"),
+    timeout: Optional[float] = typer.Option(None, "--timeout", help="HTTP request timeout in seconds (default: 20)."),
 ):
     """Analyze a Magento store's performance, security, and configuration."""
+    _validate_url(url)
+
+    if timeout is not None:
+        from mageperf.utils.http_client import http_client as _hc
+        _hc.override_timeout(timeout)
+
     from mageperf.config import Config
 
     cfg = Config()
     api_key = None if no_pagespeed else cfg.get("pagespeed_api_key")
     store = ReportStore()
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        transient=True,
-    ) as progress:
-        task = progress.add_task("Analyzing...", total=100)
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            transient=True,
+        ) as progress:
+            task = progress.add_task("Analyzing...", total=100)
 
-        def on_progress(msg: str, pct: int):
-            progress.update(task, completed=pct, description=msg)
+            def on_progress(msg: str, pct: int):
+                progress.update(task, completed=pct, description=msg)
 
-        orchestrator = get_orchestrator(progress_callback=on_progress)
-        report = asyncio.run(
-            orchestrator.run_full_analysis(url, pagespeed_api_key=api_key)
-        )
+            async def _run():
+                from mageperf.utils.http_client import http_client as _hc
+                try:
+                    orch = get_orchestrator(progress_callback=on_progress)
+                    return await orch.run_full_analysis(url, pagespeed_api_key=api_key)
+                finally:
+                    await _hc.close()
+
+            report = asyncio.run(_run())
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Analysis interrupted.[/yellow]")
+        raise typer.Exit(code=130)
+    except Exception as exc:
+        console.print(f"[red]✗ Unexpected error:[/red] {exc}")
+        raise typer.Exit(code=1)
 
     if report.get("status") == "failed":
         console.print(f"[red]✗ Analysis failed:[/red] {report.get('error')}")
@@ -143,11 +197,22 @@ def list_reports():
 def open_report(report_id: str = typer.Argument(..., help="Report ID to open")):
     """Open a saved report in the browser UI."""
     from mageperf.config import Config
+
     if not ReportStore().get(report_id):
         console.print(f"[red]✗[/red] Report '{report_id}' not found.")
         raise typer.Exit(code=1)
     cfg = Config()
     _open_report_in_browser(report_id, cfg.get("server_port"))
+
+
+@app.command("delete")
+def delete_report(report_id: str = typer.Argument(..., help="Report ID to delete")):
+    """Delete a single saved report."""
+    store = ReportStore()
+    if not store.delete(report_id):
+        console.print(f"[red]✗[/red] Report '{report_id}' not found.")
+        raise typer.Exit(code=1)
+    console.print(f"[green]✓[/green] Report {report_id} deleted.")
 
 
 @app.command("clean")
@@ -158,12 +223,36 @@ def clean_reports(
     if not force:
         typer.confirm("Delete all saved reports?", abort=True)
     store = ReportStore()
-    reports = list(store.list())  # collect first to avoid mid-loop mutation
+    reports = list(store.list())
     deleted = 0
     for r in reports:
         store.delete(r["id"])
         deleted += 1
     console.print(f"[green]✓[/green] Deleted {deleted} report(s).")
+
+
+@app.command("stop")
+def stop_server():
+    """Stop the background report server."""
+    if not _PID_FILE.exists():
+        console.print("[dim]No server running (no PID file found).[/dim]")
+        return
+    try:
+        pid = int(_PID_FILE.read_text().strip())
+    except (ValueError, OSError):
+        _PID_FILE.unlink(missing_ok=True)
+        console.print("[dim]Stale PID file removed.[/dim]")
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+        _PID_FILE.unlink(missing_ok=True)
+        console.print(f"[green]✓[/green] Server (PID {pid}) stopped.")
+    except ProcessLookupError:
+        _PID_FILE.unlink(missing_ok=True)
+        console.print("[dim]Server was not running (stale PID file removed).[/dim]")
+    except PermissionError:
+        console.print(f"[red]✗[/red] Cannot stop server (PID {pid}): permission denied.")
+        raise typer.Exit(code=1)
 
 
 def _print_summary(report: dict):
@@ -177,7 +266,11 @@ def _print_summary(report: dict):
         table.add_row(f"  {key.capitalize()}", str(val), f"[cyan]{bar}[/cyan]")
     console.print(table)
     findings_count = len(
-        [f for f in report.get("findings", []) if isinstance(f, dict) and f.get("severity") == "critical"]
+        [
+            f
+            for f in report.get("findings", [])
+            if isinstance(f, dict) and f.get("severity") == "critical"
+        ]
     )
     if findings_count:
         console.print(
@@ -197,26 +290,34 @@ def _print_table(report: dict):
     console.print(table)
 
 
+def _is_server_running(port: int) -> bool:
+    import httpx as _httpx
+
+    try:
+        _httpx.get(f"http://localhost:{port}/", timeout=0.5)
+        return True
+    except Exception:
+        return False
+
+
 def _open_report_in_browser(report_id: str, port: Any):
-    import webbrowser
     import subprocess
-    import sys
     import time
-    import httpx
+    import webbrowser
 
     port = int(port or 4780)
-    subprocess.Popen(
-        [sys.executable, "-m", "mageperf.cli", "serve", "--no-open"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    # Poll until server is ready (up to 5 seconds)
-    for _ in range(10):
-        try:
-            httpx.get(f"http://localhost:{port}/", timeout=0.5)
-            break
-        except Exception:
+
+    if not _is_server_running(port):
+        subprocess.Popen(
+            [sys.executable, "-m", "mageperf.cli", "serve", "--no-open"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        for _ in range(10):
+            if _is_server_running(port):
+                break
             time.sleep(0.5)
+
     webbrowser.open(f"http://localhost:{port}/report/{report_id}")
 
 
@@ -226,11 +327,12 @@ def serve(
     no_open: bool = typer.Option(False, "--no-open", help="Don't open browser"),
 ):
     """Start the local report UI server."""
-    from mageperf.server.server import LocalServer
-    from mageperf.config import Config
-    import webbrowser
     import threading
     import time
+    import webbrowser
+
+    from mageperf.config import Config
+    from mageperf.server.server import LocalServer
 
     cfg = Config()
     port = port or cfg.get("server_port") or 4780
@@ -241,12 +343,18 @@ def serve(
         f"[green]✓[/green] mageperf UI running at [bold]{url}[/bold]  (Ctrl+C to stop)"
     )
 
+    # Write PID file so `mageperf stop` can find this process
+    _PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _PID_FILE.write_text(str(os.getpid()))
+
     if not no_open:
+
         def _open_when_ready():
-            import httpx
+            import httpx as _httpx
+
             for _ in range(20):
                 try:
-                    httpx.get(url, timeout=0.5)
+                    _httpx.get(url, timeout=0.5)
                     break
                 except Exception:
                     time.sleep(0.25)
@@ -259,6 +367,8 @@ def serve(
     except KeyboardInterrupt:
         srv.shutdown()
         console.print("[dim]Server stopped.[/dim]")
+    finally:
+        _PID_FILE.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
