@@ -18,6 +18,14 @@ dependencies = [
     "dnspython>=2.4.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-mock>=3.0.0",
+    "httpx>=0.28.0",
+]
+
 [project.scripts]
 mageperf = "mageperf.cli:app"
 
@@ -27,3 +35,4 @@ packages = ["mageperf"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

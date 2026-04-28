@@ -12,26 +12,11 @@ from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 import re
 
-from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
+from mageperf.core.models import CheckResult
 from mageperf.utils.http_client import http_client
 from mageperf.utils.logger import logger
-from mageperf.config import Config as _Config
-
-settings = _Config()
-
-@dataclass
-class CheckResult:
-    """Dataclass for storing the result of a single check category."""
-    category: str
-    score: float
-    details: Dict[str, Any]
-    recommendations: List[str]
-    error: Optional[str] = None
-
-    def to_dict(self):
-        return asdict(self)
 
 
 class PerformanceChecker:
@@ -54,10 +39,11 @@ class PerformanceChecker:
         self.pagespeed_reset_timeout = 300  # 5 minutes
     
     async def fetch_pagespeed_insights(
-        self, 
-        url: str, 
+        self,
+        url: str,
         strategy: str = "desktop",
-        user_id: str = None
+        api_key: Optional[str] = None,
+        user_id: str = None,
     ) -> Dict[str, Any]:
         """
         Makes asynchronous calls to the Google PageSpeed Insights API.
@@ -73,7 +59,7 @@ class PerformanceChecker:
             # Prepare API parameters
             params = {
                 "url": url,
-                "key": settings.get("pagespeed_api_key"),
+                "key": api_key,
                 "strategy": strategy,
                 "category": ["PERFORMANCE", "ACCESSIBILITY", "BEST_PRACTICES", "SEO"],
                 "locale": "en"
@@ -489,17 +475,29 @@ class PerformanceChecker:
         """Run all performance checks."""
         logger.info(f"Starting all performance checks for {url}")
         try:
-            response_time_result = (await self.check_response_times(url)).to_dict()
-            frontend_performance_result = (await self.check_frontend_performance(url, pagespeed_results)).to_dict()
-            
-            # Pass frontend performance details to asset optimization check
+            # Run independent checks in parallel; asset_optimization depends on
+            # frontend_performance details so it runs sequentially after.
+            (
+                response_time_check,
+                frontend_performance_check,
+                caching_check,
+                server_config_check,
+            ) = await asyncio.gather(
+                self.check_response_times(url),
+                self.check_frontend_performance(url, pagespeed_results),
+                self.check_cache_implementation(url),
+                self.check_server_configuration(url),
+            )
+
+            response_time_result = response_time_check.to_dict()
+            frontend_performance_result = frontend_performance_check.to_dict()
+            caching_result = caching_check.to_dict()
+            server_config_result = server_config_check.to_dict()
+
             frontend_details = frontend_performance_result.get('details')
             asset_optimization_result = (await self.check_asset_optimization(
                 url, frontend_performance_details=frontend_details
             )).to_dict()
-            
-            caching_result = (await self.check_cache_implementation(url)).to_dict()
-            server_config_result = (await self.check_server_configuration(url)).to_dict()
 
             checks = {
                 'response_time': response_time_result,
@@ -512,14 +510,14 @@ class PerformanceChecker:
             return {
                 "overall_score": self.calculate_overall_score(checks),
                 "categories": checks,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
         except Exception as e:
             logger.error(f"Error in run_all_checks: {str(e)}")
             return {
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
 
     async def check_response_times(self, url: str) -> CheckResult:
@@ -571,29 +569,16 @@ class PerformanceChecker:
             desktop_result = pagespeed_results.get("desktop_performance", {})
             mobile_result = pagespeed_results.get("mobile_performance", {})
         else:
-            if not settings.get("pagespeed_api_key"):
-                logger.error("pagespeed_api_key is not set. Cannot run PageSpeed API check.")
-                return CheckResult(
-                    category="Frontend Performance",
-                    score=0,
-                    details={},
-                    recommendations=["Configure pagespeed_api_key via 'mageperf config set pagespeed_api_key <key>'."],
-                    error="PageSpeed API key not configured."
-                )
-            
-            try:
-                # Use the existing fetch_pagespeed_insights method
-                desktop_result = await self.fetch_pagespeed_insights(url, "desktop")
-                mobile_result = await self.fetch_pagespeed_insights(url, "mobile")
-            except Exception as e:
-                logger.error(f"PageSpeed API check failed: {str(e)}")
-                return CheckResult(
-                    category="Frontend Performance",
-                    score=0,
-                    details={},
-                    recommendations=["PageSpeed API check failed. Ensure API key is valid and URL is accessible."],
-                    error=str(e)
-                )
+            # No pre-fetched PageSpeed results and no API key available at this stage.
+            # The orchestrator pre-fetches when a key is configured; skip gracefully.
+            logger.info("No PageSpeed results available; skipping frontend performance check.")
+            return CheckResult(
+                category="Frontend Performance",
+                score=0,
+                details={},
+                recommendations=["Provide a Google PageSpeed API key to enable Core Web Vitals scoring."],
+                error=None,
+            )
         
         all_strategy_details = {
             "DESKTOP": desktop_result,

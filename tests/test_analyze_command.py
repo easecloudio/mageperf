@@ -1,13 +1,15 @@
-import pytest
 import json
+import pytest
 from typer.testing import CliRunner
 from unittest.mock import patch, AsyncMock
 from mageperf.cli import app
 
 runner = CliRunner()
 
+_REPORT_UUID = "12345678-1234-5678-abcd-567812345678"
+
 MOCK_REPORT = {
-    "id": "test-uuid-0001",
+    "id": _REPORT_UUID,
     "url": "https://demo.magento.com",
     "created_at": "2026-04-14T10:00:00Z",
     "status": "completed",
@@ -18,6 +20,7 @@ MOCK_REPORT = {
     "recommendations": [],
 }
 
+
 def test_analyze_outputs_summary(tmp_path):
     with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"), \
          patch("mageperf.cli.get_orchestrator") as mock_orch_factory:
@@ -26,6 +29,7 @@ def test_analyze_outputs_summary(tmp_path):
         result = runner.invoke(app, ["analyze", "https://demo.magento.com"])
     assert result.exit_code == 0
     assert "74" in result.output
+
 
 def test_analyze_json_format(tmp_path):
     with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"), \
@@ -36,6 +40,7 @@ def test_analyze_json_format(tmp_path):
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["overall_score"] == 74
+
 
 def test_analyze_exits_1_on_failure(tmp_path):
     with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"), \
@@ -48,3 +53,14 @@ def test_analyze_exits_1_on_failure(tmp_path):
         })
         result = runner.invoke(app, ["analyze", "https://notmagento.com"])
     assert result.exit_code == 1
+
+
+def test_analyze_rejects_url_without_scheme(tmp_path):
+    result = runner.invoke(app, ["analyze", "store.example.com"])
+    assert result.exit_code != 0
+    assert "http" in result.output.lower() or "http" in (result.stderr or "").lower()
+
+
+def test_analyze_rejects_non_http_scheme(tmp_path):
+    result = runner.invoke(app, ["analyze", "ftp://store.example.com"])
+    assert result.exit_code != 0

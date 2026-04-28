@@ -1,23 +1,60 @@
 import json
+import os
+import re
+import tempfile
 from pathlib import Path
-from typing import Any, Optional, List
+from typing import Any, List, Optional
 
 REPORTS_DIR = Path.home() / ".easecloud" / "mageperf" / "reports"
 
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+
+
+def _ensure_reports_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path, 0o700)
+    except OSError:
+        pass
+
+
 class ReportStore:
     def save(self, report: dict) -> None:
-        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-        report_id = report["id"]
+        _ensure_reports_dir(REPORTS_DIR)
+        report_id = str(report["id"])
+        if not _UUID_RE.match(report_id):
+            raise ValueError(f"Invalid report ID (must be UUID): {report_id!r}")
         path = REPORTS_DIR / f"{report_id}.json"
-        path.write_text(json.dumps(report, indent=2, default=str))
+        # Atomic write: write to temp then rename
+        fd, tmp = tempfile.mkstemp(dir=REPORTS_DIR, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(report, f, indent=2, default=str)
+            try:
+                os.chmod(tmp, 0o600)
+            except OSError:
+                pass
+            os.replace(tmp, str(path))
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
     def get(self, report_id: str) -> Optional[dict]:
+        if not _UUID_RE.match(str(report_id)):
+            return None
         path = REPORTS_DIR / f"{report_id}.json"
         if not path.exists():
             return None
         return json.loads(path.read_text())
 
     def list(self) -> List[dict]:
+        if not REPORTS_DIR.exists():
+            return []
         reports = []
         paths = sorted(
             REPORTS_DIR.glob("*.json"),
@@ -33,6 +70,8 @@ class ReportStore:
         return reports
 
     def delete(self, report_id: str) -> bool:
+        if not _UUID_RE.match(str(report_id)):
+            return False
         path = REPORTS_DIR / f"{report_id}.json"
         if path.exists():
             path.unlink()
