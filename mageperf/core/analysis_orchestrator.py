@@ -80,6 +80,12 @@ class AnalysisOrchestrator:
             a for a in self._analyzers
             if run_all or any(c in a.name for c in checks)
         ]
+        if not active_analyzers and not run_all:
+            logger.warning(
+                f"No analyzers matched --checks {checks!r}. "
+                f"Valid values: magento, performance, all. Running all analyzers instead."
+            )
+            active_analyzers = list(self._analyzers)
 
         # Optional PageSpeed pre-fetch (runs before registry analyzers so results
         # can be forwarded as kwargs to whichever analyzer needs them)

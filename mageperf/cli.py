@@ -134,7 +134,7 @@ def analyze(
     checks: Optional[str] = typer.Option(
         None,
         "--checks",
-        help="Comma-separated subset of checks to run: performance, security, magento, all (default: all).",
+        help="Comma-separated subset of checks to run: performance, magento, all (default: all). Security checks are included within 'magento'.",
     ),
 ):
     """Analyze a Magento store's performance, security, and configuration."""

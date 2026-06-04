@@ -121,6 +121,20 @@ def test_analyze_accepts_checks_flag(tmp_path):
     assert "performance" in call_kwargs["checks"]
 
 
+def test_analyze_unrecognised_checks_falls_back_to_all(tmp_path):
+    """An unrecognised --checks value should not produce a silent empty analysis."""
+    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"), \
+         patch("mageperf.cli.get_orchestrator") as mock_orch_factory:
+        mock_orch = mock_orch_factory.return_value
+        mock_orch.run_full_analysis = AsyncMock(return_value=MOCK_REPORT)
+        result = runner.invoke(app, [
+            "analyze", "https://demo.magento.com", "--checks", "typo_check"
+        ])
+    assert result.exit_code == 0
+    # The orchestrator should still have been called
+    mock_orch.run_full_analysis.assert_called_once()
+
+
 @pytest.mark.asyncio
 async def test_orchestrator_force_bypasses_detection_gate():
     """When force=True, orchestrator must proceed even when is_magento=False."""
