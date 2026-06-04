@@ -7,6 +7,7 @@ optimization, and extension detection.
 
 import asyncio
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
@@ -417,25 +418,87 @@ class MagentoChecker:
             self._page_cache[url] = await http_client.get_with_retry(url)
         return self._page_cache[url]
 
+    async def check_search_engine(self, url: str) -> CheckResult:
+        """Check the search engine configuration by probing the catalog search endpoint."""
+        results = {}
+        recommendations = []
+
+        try:
+            search_url = urljoin(url, "catalogsearch/result/?q=test")
+            start = time.time()
+            response = await http_client.get_with_retry(search_url, max_retries=1)
+            search_ttfb_ms = (time.time() - start) * 1000
+
+            results["search_ttfb_ms"] = round(search_ttfb_ms, 2)
+            results["search_status"] = response.status_code
+
+            headers = dict(response.headers)
+            es_signals = ["x-search-engine", "x-elastic", "x-opensearch"]
+            detected_engine = None
+            for h in es_signals:
+                val = headers.get(h, "")
+                if val:
+                    detected_engine = val
+                    break
+
+            mysql_search_likely = search_ttfb_ms > 1500 and not detected_engine
+
+            results["search_engine_detected"] = detected_engine or (
+                "MySQL (inferred from slow TTFB)" if mysql_search_likely else "unknown"
+            )
+            results["mysql_search_likely"] = mysql_search_likely
+
+            if mysql_search_likely:
+                recommendations.append(
+                    "Search response time is very slow (>1.5s), which strongly suggests "
+                    "MySQL is used as the search engine. Switch to Elasticsearch or OpenSearch "
+                    "for production — MySQL search causes full table scans on large catalogs."
+                )
+            elif not detected_engine:
+                recommendations.append(
+                    "Could not detect the search engine. Verify Elasticsearch or OpenSearch is "
+                    "configured in Magento Admin > Stores > Configuration > Catalog > Catalog Search."
+                )
+
+            if search_ttfb_ms > 800:
+                recommendations.append(
+                    f"Catalog search response time is {search_ttfb_ms:.0f}ms (should be <800ms). "
+                    "Investigate search engine configuration and index health."
+                )
+
+        except Exception as e:
+            logger.error(f"Search engine check error: {e}")
+            return CheckResult("Search Engine", 50, {}, ["Could not check search engine."], error=str(e))
+
+        score = 100.0
+        if results.get("mysql_search_likely"):
+            score -= 60.0
+        elif results.get("search_ttfb_ms", 0) > 800:
+            score -= 25.0
+
+        return CheckResult("Search Engine", max(0.0, score), results, recommendations)
+
     async def run_all_checks(self, url: str, skip_invasive_checks: bool = True) -> Dict[str, Any]:
         """Run all Magento 2 specific checks."""
         self._page_cache = {}  # Clear cache at the start of each analysis run
         logger.info(f"Starting all checks for {url} (invasive checks: {'disabled' if skip_invasive_checks else 'enabled'})")
         
         try:
-            # Run all five category checks in parallel — they are fully independent
+            # Run all six category checks in parallel — they are fully independent
             (
                 config_check,
                 security_check,
                 optimization_check,
                 extension_check,
                 seo_check,
+                search_check,
             ) = await asyncio.gather(
                 self.check_configuration(url),
                 self.check_security(url, skip_invasive_checks=skip_invasive_checks),
                 self.check_optimization(url),
                 self.check_extensions(url),
                 self.check_seo(url),
+                self.check_search_engine(url),
             )
 
             checks = {
@@ -443,7 +506,8 @@ class MagentoChecker:
                 'security': security_check.to_dict(),
                 'optimization': optimization_check.to_dict(),
                 'extensions': extension_check.to_dict(),
-                'seo': seo_check.to_dict()
+                'seo': seo_check.to_dict(),
+                'search_engine': search_check.to_dict(),
             }
 
             results = {
@@ -959,11 +1023,12 @@ class MagentoChecker:
 
     def calculate_overall_score(self, checks: Dict[str, Dict]) -> float:
         weights = {
-            'configuration': 0.20,
+            'configuration': 0.15,
             'security': 0.30,
-            'optimization': 0.30,
+            'optimization': 0.25,
             'extensions': 0.05,
-            'seo': 0.15
+            'seo': 0.10,
+            'search_engine': 0.15,
         }
 
         overall_score = sum(
