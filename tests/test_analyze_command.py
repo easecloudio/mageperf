@@ -1,7 +1,7 @@
 import json
 import pytest
 from typer.testing import CliRunner
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 from mageperf.cli import app
 
 runner = CliRunner()
@@ -81,17 +81,29 @@ def test_analyze_force_skips_detection_gate(tmp_path):
 
 
 def test_analyze_progress_callback_is_called(tmp_path):
-    """Progress callback must be passed to get_orchestrator."""
-    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"), \
-         patch("mageperf.cli.get_orchestrator") as mock_orch_factory:
-        mock_orch = mock_orch_factory.return_value
+    """progress_callback passed to get_orchestrator must be callable and invocable."""
+    captured_callback = None
+
+    def capture_orch(*args, **kwargs):
+        nonlocal captured_callback
+        captured_callback = kwargs.get("progress_callback")
+        mock_orch = MagicMock()
         mock_orch.run_full_analysis = AsyncMock(return_value=MOCK_REPORT)
+        return mock_orch
+
+    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"), \
+         patch("mageperf.cli.get_orchestrator", side_effect=capture_orch):
         result = runner.invoke(app, ["analyze", "https://demo.magento.com"])
+
     assert result.exit_code == 0
-    # get_orchestrator must have been called with a progress_callback kwarg
-    call_kwargs = mock_orch_factory.call_args.kwargs
-    assert "progress_callback" in call_kwargs
-    assert callable(call_kwargs["progress_callback"])
+    assert captured_callback is not None
+    assert callable(captured_callback)
+    # Verify the callback is invocable with (msg, pct) — it may silently no-op
+    # outside an active status context, which is fine
+    try:
+        captured_callback("Detecting Magento", 15)
+    except Exception as e:
+        pytest.fail(f"progress_callback raised unexpectedly: {e}")
 
 
 @pytest.mark.asyncio
