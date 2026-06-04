@@ -199,6 +199,75 @@ def open_report(report_id: str = typer.Argument(..., help="Report ID to open")):
     _open_report_in_browser(report_id, cfg.get("server_port"))
 
 
+@app.command("compare")
+def compare_reports(
+    report_a: str = typer.Argument(..., help="Baseline report ID (older/before)"),
+    report_b: str = typer.Argument(..., help="Comparison report ID (newer/after)"),
+):
+    """Compare two saved reports side by side to measure improvement."""
+    store = ReportStore()
+    a = store.get(report_a)
+    b = store.get(report_b)
+
+    if not a:
+        console.print(f"[red]✗[/red] Report '{report_a}' not found.")
+        raise typer.Exit(code=1)
+    if not b:
+        console.print(f"[red]✗[/red] Report '{report_b}' not found.")
+        raise typer.Exit(code=1)
+
+    def _delta_str(before: float, after: float) -> str:
+        diff = after - before
+        if diff > 0:
+            return f"[green]+{diff:.0f}[/green]"
+        elif diff < 0:
+            return f"[red]{diff:.0f}[/red]"
+        return "[dim]±0[/dim]"
+
+    console.print(f"\n[bold]Score Comparison[/bold]")
+    console.print(f"  Baseline : {a.get('url', '')}  [{a.get('created_at', '')[:10]}]  score={a.get('overall_score', 0)}  grade={a.get('grade', '?')}")
+    console.print(f"  Compared : {b.get('url', '')}  [{b.get('created_at', '')[:10]}]  score={b.get('overall_score', 0)}  grade={b.get('grade', '?')}")
+
+    table = Table(title="Score Delta", show_header=True)
+    table.add_column("Category")
+    table.add_column("Before", justify="right")
+    table.add_column("After", justify="right")
+    table.add_column("Delta", justify="right")
+
+    overall_before = float(a.get("overall_score", 0))
+    overall_after = float(b.get("overall_score", 0))
+    table.add_row(
+        "[bold]Overall[/bold]",
+        f"[bold]{overall_before:.0f}[/bold]",
+        f"[bold]{overall_after:.0f}[/bold]",
+        _delta_str(overall_before, overall_after),
+    )
+
+    all_cats = set(list(a.get("scores", {}).keys()) + list(b.get("scores", {}).keys()))
+    for cat in sorted(all_cats):
+        before_val = float(a.get("scores", {}).get(cat, 0))
+        after_val = float(b.get("scores", {}).get(cat, 0))
+        table.add_row(cat.capitalize(), f"{before_val:.0f}", f"{after_val:.0f}", _delta_str(before_val, after_val))
+
+    console.print(table)
+
+    a_recs = {f.get("recommendation", f) if isinstance(f, dict) else f for f in a.get("findings", [])}
+    b_recs = {f.get("recommendation", f) if isinstance(f, dict) else f for f in b.get("findings", [])}
+    resolved = a_recs - b_recs
+    new_findings = b_recs - a_recs
+
+    if resolved:
+        console.print(f"\n[green]Resolved ({len(resolved)}):[/green]")
+        for r in sorted(resolved):
+            console.print(f"  [green]✓[/green] {r}")
+    if new_findings:
+        console.print(f"\n[yellow]New findings ({len(new_findings)}):[/yellow]")
+        for f in sorted(new_findings):
+            console.print(f"  [yellow]![/yellow] {f}")
+    if not resolved and not new_findings:
+        console.print("\n[dim]No change in findings.[/dim]")
+
+
 @app.command("delete")
 def delete_report(report_id: str = typer.Argument(..., help="Report ID to delete")):
     """Delete a single saved report."""

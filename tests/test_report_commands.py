@@ -1,6 +1,6 @@
 import pytest
 from typer.testing import CliRunner
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from mageperf.cli import app
 
 runner = CliRunner()
@@ -51,3 +51,51 @@ def test_clean_removes_all(tmp_path):
         result = runner.invoke(app, ["clean", "--force"])
     assert result.exit_code == 0
     assert "Deleted 1" in result.output
+
+
+_REPORT_A = {
+    "id": "aaaaaaaa-0000-0000-0000-000000000000",
+    "url": "https://demo.magento.com",
+    "created_at": "2026-04-01T10:00:00Z",
+    "overall_score": 55,
+    "grade": "C",
+    "scores": {"performance": 50, "security": 60, "config": 55},
+    "findings": [{"recommendation": "Enable CSS merging", "severity": "high"}],
+}
+_REPORT_B = {
+    "id": "bbbbbbbb-0000-0000-0000-000000000000",
+    "url": "https://demo.magento.com",
+    "created_at": "2026-04-14T10:00:00Z",
+    "overall_score": 74,
+    "grade": "B",
+    "scores": {"performance": 82, "security": 61, "config": 79},
+    "findings": [],
+}
+
+
+def test_compare_shows_score_delta(tmp_path):
+    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"):
+        store_mock = MagicMock()
+        store_mock.get.side_effect = lambda rid: (
+            _REPORT_A if rid == _REPORT_A["id"] else
+            _REPORT_B if rid == _REPORT_B["id"] else None
+        )
+        with patch("mageperf.cli.ReportStore", return_value=store_mock):
+            result = runner.invoke(app, [
+                "compare", _REPORT_A["id"], _REPORT_B["id"]
+            ])
+    assert result.exit_code == 0
+    assert "+19" in result.output  # 74 - 55 = 19
+
+
+def test_compare_exits_1_on_missing_report(tmp_path):
+    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"):
+        store_mock = MagicMock()
+        store_mock.get.return_value = None
+        with patch("mageperf.cli.ReportStore", return_value=store_mock):
+            result = runner.invoke(app, [
+                "compare",
+                "aaaaaaaa-0000-0000-0000-000000000000",
+                "bbbbbbbb-0000-0000-0000-000000000000",
+            ])
+    assert result.exit_code == 1
