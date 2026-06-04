@@ -80,6 +80,20 @@ def test_analyze_force_skips_detection_gate(tmp_path):
     assert result.exit_code == 0
 
 
+def test_analyze_progress_callback_is_called(tmp_path):
+    """Progress callback must be passed to get_orchestrator."""
+    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"), \
+         patch("mageperf.cli.get_orchestrator") as mock_orch_factory:
+        mock_orch = mock_orch_factory.return_value
+        mock_orch.run_full_analysis = AsyncMock(return_value=MOCK_REPORT)
+        result = runner.invoke(app, ["analyze", "https://demo.magento.com"])
+    assert result.exit_code == 0
+    # get_orchestrator must have been called with a progress_callback kwarg
+    call_kwargs = mock_orch_factory.call_args.kwargs
+    assert "progress_callback" in call_kwargs
+    assert callable(call_kwargs["progress_callback"])
+
+
 @pytest.mark.asyncio
 async def test_orchestrator_force_bypasses_detection_gate():
     """When force=True, orchestrator must proceed even when is_magento=False."""

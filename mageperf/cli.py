@@ -10,7 +10,6 @@ from urllib.parse import urlparse
 
 import typer
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from mageperf import __version__
@@ -122,15 +121,9 @@ def analyze(
     store = ReportStore()
 
     try:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            transient=True,
-        ) as progress:
-            task = progress.add_task("Analyzing...", total=100)
-
+        with console.status("Analyzing...", spinner="dots") as status:
             def on_progress(msg: str, pct: int):
-                progress.update(task, completed=pct, description=msg)
+                status.update(f"[bold]{msg}[/bold] ({pct}%)")
 
             async def _run():
                 from mageperf.utils.http_client import http_client as _hc

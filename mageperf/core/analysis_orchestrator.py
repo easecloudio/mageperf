@@ -72,7 +72,7 @@ class AnalysisOrchestrator:
 
         # Optional PageSpeed pre-fetch (runs before registry analyzers so results
         # can be forwarded as kwargs to whichever analyzer needs them)
-        self._progress("Running performance checks", 30)
+        self._progress("Fetching PageSpeed data", 30)
         pagespeed_results: Optional[Dict[str, Any]] = None
         if pagespeed_api_key:
             try:
@@ -91,7 +91,7 @@ class AnalysisOrchestrator:
                 logger.error(f"PageSpeed fetch failed: {e}")
 
         # Run all registered analyzers in parallel
-        self._progress("Running all checks", 55)
+        self._progress("Running Magento checks", 55)
         analyzer_kwargs: Dict[str, Any] = {"pagespeed_results": pagespeed_results}
 
         async def _run_one(analyzer) -> tuple[str, Dict[str, Any]]:
