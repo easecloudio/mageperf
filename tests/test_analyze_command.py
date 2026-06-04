@@ -76,5 +76,31 @@ def test_analyze_force_skips_detection_gate(tmp_path):
             "analyze", "https://hardened-store.com", "--force"
         ])
     call_kwargs = mock_orch.run_full_analysis.call_args
-    assert call_kwargs.kwargs.get("force") is True
+    assert call_kwargs.kwargs["force"] is True
     assert result.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_force_bypasses_detection_gate():
+    """When force=True, orchestrator must proceed even when is_magento=False."""
+    from unittest.mock import AsyncMock, patch
+    from mageperf.core.analysis_orchestrator import AnalysisOrchestrator
+
+    orch = AnalysisOrchestrator()
+
+    mock_detection = {"is_magento": False, "confidence": 0}
+    mock_scores = {
+        "overall_score": 50,
+        "grade": "C",
+        "category_scores": {},
+        "recommendations": [],
+    }
+
+    with patch.object(orch._magento_checker, "detect_magento_presence", AsyncMock(return_value=mock_detection)), \
+         patch.object(orch._scoring_service, "calculate_comprehensive_score", return_value=mock_scores), \
+         patch("mageperf.core.analysis_orchestrator.validate_url_not_ssrf"), \
+         patch.object(orch, "_analyzers", []):
+
+        report = await orch.run_full_analysis("https://hardened-store.com", force=True)
+
+    assert report.get("status") == "completed"
