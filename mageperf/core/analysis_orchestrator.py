@@ -32,7 +32,11 @@ class AnalysisOrchestrator:
         self._progress = progress_callback or (lambda msg, pct: None)
 
     async def run_full_analysis(
-        self, url: str, pagespeed_api_key: Optional[str] = None, force: bool = False
+        self,
+        url: str,
+        pagespeed_api_key: Optional[str] = None,
+        force: bool = False,
+        checks: Optional[list] = None,
     ) -> Dict[str, Any]:
         task_id = str(uuid.uuid4())
         started_at = datetime.now(timezone.utc)
@@ -70,11 +74,18 @@ class AnalysisOrchestrator:
         if force and not magento_detection.get("is_magento"):
             self._progress("Detection skipped (--force)", 25)
 
+        # Filter analyzers by requested checks
+        run_all = not checks or checks == ["all"]
+        active_analyzers = [
+            a for a in self._analyzers
+            if run_all or any(c in a.name for c in checks)
+        ]
+
         # Optional PageSpeed pre-fetch (runs before registry analyzers so results
         # can be forwarded as kwargs to whichever analyzer needs them)
         self._progress("Fetching PageSpeed data", 30)
         pagespeed_results: Optional[Dict[str, Any]] = None
-        if pagespeed_api_key:
+        if pagespeed_api_key and (run_all or "performance" in (checks or [])):
             try:
                 from mageperf.core.performance_checker import get_performance_checker
 
@@ -102,7 +113,7 @@ class AnalysisOrchestrator:
                 result = {"error": str(e), "overall_score": 0}
             return analyzer.name, result
 
-        pairs = await asyncio.gather(*[_run_one(a) for a in self._analyzers])
+        pairs = await asyncio.gather(*[_run_one(a) for a in active_analyzers])
         analysis_results: Dict[str, Any] = {
             "magento_detection": magento_detection,
             **{name: result for name, result in pairs},

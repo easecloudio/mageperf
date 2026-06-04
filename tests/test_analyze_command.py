@@ -106,6 +106,21 @@ def test_analyze_progress_callback_is_called(tmp_path):
         pytest.fail(f"progress_callback raised unexpectedly: {e}")
 
 
+def test_analyze_accepts_checks_flag(tmp_path):
+    """--checks performance should pass checks list to orchestrator."""
+    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"), \
+         patch("mageperf.cli.get_orchestrator") as mock_orch_factory:
+        mock_orch = mock_orch_factory.return_value
+        mock_orch.run_full_analysis = AsyncMock(return_value=MOCK_REPORT)
+        result = runner.invoke(app, [
+            "analyze", "https://demo.magento.com", "--checks", "performance,security"
+        ])
+    assert result.exit_code == 0
+    call_kwargs = mock_orch.run_full_analysis.call_args.kwargs
+    assert "checks" in call_kwargs
+    assert "performance" in call_kwargs["checks"]
+
+
 @pytest.mark.asyncio
 async def test_orchestrator_force_bypasses_detection_gate():
     """When force=True, orchestrator must proceed even when is_magento=False."""
