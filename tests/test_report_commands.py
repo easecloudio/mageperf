@@ -123,7 +123,10 @@ def test_open_by_numeric_index(tmp_path):
         store_mock = MagicMock()
         store_mock.list.return_value = _REPORTS_LIST
         store_mock.get.return_value = _REPORTS_LIST[0]
+        mock_config = MagicMock()
+        mock_config.get.return_value = 4780
         with patch("mageperf.cli.ReportStore", return_value=store_mock), \
+             patch("mageperf.config.Config", return_value=mock_config), \
              patch("mageperf.cli._open_report_in_browser") as mock_open:
             result = runner.invoke(app, ["open", "1"])
     assert result.exit_code == 0
@@ -135,4 +138,23 @@ def test_open_by_out_of_range_index_exits_1(tmp_path):
         store_mock.list.return_value = _REPORTS_LIST
         with patch("mageperf.cli.ReportStore", return_value=store_mock):
             result = runner.invoke(app, ["open", "99"])
+    assert result.exit_code == 1
+
+def test_open_index_zero_exits_1(tmp_path):
+    """Index 0 is not valid (1-based); should exit 1."""
+    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"):
+        store_mock = MagicMock()
+        store_mock.list.return_value = _REPORTS_LIST
+        store_mock.get.return_value = None  # "0" is not a valid UUID
+        with patch("mageperf.cli.ReportStore", return_value=store_mock):
+            result = runner.invoke(app, ["open", "0"])
+    assert result.exit_code == 1
+
+def test_open_index_on_empty_list_exits_1(tmp_path):
+    """Numeric index on empty list should exit 1."""
+    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"):
+        store_mock = MagicMock()
+        store_mock.list.return_value = []
+        with patch("mageperf.cli.ReportStore", return_value=store_mock):
+            result = runner.invoke(app, ["open", "1"])
     assert result.exit_code == 1

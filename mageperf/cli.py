@@ -196,10 +196,10 @@ def open_report(report_id: str = typer.Argument(..., help="Report ID or list ind
 
     store = ReportStore()
 
-    if report_id.isdigit():
+    if report_id.isdigit() and int(report_id) > 0:
         reports = store.list()
         idx = int(report_id) - 1
-        if idx < 0 or idx >= len(reports):
+        if idx >= len(reports):
             console.print(f"[red]✗[/red] No report at index {report_id}. Run [bold]mageperf list[/bold] to see available reports.")
             raise typer.Exit(code=1)
         report_id = reports[idx]["id"]
