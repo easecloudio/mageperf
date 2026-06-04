@@ -47,6 +47,21 @@ config_app = typer.Typer(help="Manage mageperf configuration")
 app.add_typer(config_app, name="config")
 
 
+def _validate_pagespeed_api_key(api_key: str) -> bool:
+    """Make a test PageSpeed API call. Returns True if key works."""
+    import httpx
+
+    try:
+        resp = httpx.get(
+            "https://www.googleapis.com/pagespeedonline/v5/runPagespeed",
+            params={"url": "https://www.google.com", "key": api_key, "strategy": "desktop"},
+            timeout=10.0,
+        )
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
 @config_app.command("set")
 def config_set(key: str, value: str):
     """Set a configuration value."""
@@ -67,6 +82,16 @@ def config_set(key: str, value: str):
             typed_value = value
     Config().set(key, typed_value)
     console.print(f"[green]✓[/green] {key} = {typed_value}")
+    if key == "pagespeed_api_key" and typed_value:
+        console.print("[dim]Validating PageSpeed API key...[/dim]")
+        if _validate_pagespeed_api_key(str(typed_value)):
+            console.print("[green]✓[/green] PageSpeed API key is valid.")
+        else:
+            console.print(
+                "[yellow]Warning:[/yellow] Could not validate PageSpeed API key. "
+                "Key saved, but check it is correct at "
+                "https://developers.google.com/speed/docs/insights/v5/get-started"
+            )
 
 
 @config_app.command("get")
