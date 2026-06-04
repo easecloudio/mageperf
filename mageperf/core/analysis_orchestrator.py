@@ -120,6 +120,11 @@ class AnalysisOrchestrator:
             return analyzer.name, result
 
         pairs = await asyncio.gather(*[_run_one(a) for a in active_analyzers])
+        check_errors = [
+            {"check": name, "error": result["error"]}
+            for name, result in pairs
+            if isinstance(result, dict) and result.get("error")
+        ]
         analysis_results: Dict[str, Any] = {
             "magento_detection": magento_detection,
             **{name: result for name, result in pairs},
@@ -171,6 +176,7 @@ class AnalysisOrchestrator:
             },
             "findings": findings,
             "recommendations": scores.get("recommendations", []),
+            "check_errors": check_errors,
             "raw": {
                 "magento_detection": magento_detection,
                 "magento_analysis": magento_analysis,

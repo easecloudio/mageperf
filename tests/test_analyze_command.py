@@ -20,6 +20,13 @@ MOCK_REPORT = {
     "recommendations": [],
 }
 
+MOCK_REPORT_WITH_ERRORS = {
+    **MOCK_REPORT,
+    "check_errors": [
+        {"check": "search_engine", "error": "Connection timeout"},
+    ],
+}
+
 
 def test_analyze_outputs_summary(tmp_path):
     with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"), \
@@ -159,3 +166,14 @@ async def test_orchestrator_force_bypasses_detection_gate():
         report = await orch.run_full_analysis("https://hardened-store.com", force=True)
 
     assert report.get("status") == "completed"
+
+
+def test_analyze_surfaces_check_errors_in_summary(tmp_path):
+    """Terminal summary must mention check-level errors."""
+    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"), \
+         patch("mageperf.cli.get_orchestrator") as mock_orch_factory:
+        mock_orch = mock_orch_factory.return_value
+        mock_orch.run_full_analysis = AsyncMock(return_value=MOCK_REPORT_WITH_ERRORS)
+        result = runner.invoke(app, ["analyze", "https://demo.magento.com"])
+    assert result.exit_code == 0
+    assert "search_engine" in result.output.lower() or "connection timeout" in result.output.lower()

@@ -385,6 +385,12 @@ def _print_summary(report: dict):
         )
     report_id = report.get("id", "")
     console.print(f"[dim]Report saved: ~/.easecloud/mageperf/reports/{report_id}.json[/dim]")
+    check_errors = report.get("check_errors", [])
+    if check_errors:
+        console.print("\n[yellow]Some checks encountered errors:[/yellow]")
+        for ce in check_errors:
+            console.print(f"  [yellow]![/yellow] {ce['check']}: {ce['error']}")
+        console.print("[dim]Scores for failed checks defaulted to 0.[/dim]")
 
 
 def _print_table(report: dict):
