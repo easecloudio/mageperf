@@ -64,3 +64,17 @@ def test_analyze_rejects_url_without_scheme(tmp_path):
 def test_analyze_rejects_non_http_scheme(tmp_path):
     result = runner.invoke(app, ["analyze", "ftp://store.example.com"])
     assert result.exit_code != 0
+
+
+def test_analyze_force_skips_detection_gate(tmp_path):
+    """--force should pass force=True to run_full_analysis."""
+    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"), \
+         patch("mageperf.cli.get_orchestrator") as mock_orch_factory:
+        mock_orch = mock_orch_factory.return_value
+        mock_orch.run_full_analysis = AsyncMock(return_value=MOCK_REPORT)
+        result = runner.invoke(app, [
+            "analyze", "https://hardened-store.com", "--force"
+        ])
+    call_kwargs = mock_orch.run_full_analysis.call_args
+    assert call_kwargs.kwargs.get("force") is True
+    assert result.exit_code == 0

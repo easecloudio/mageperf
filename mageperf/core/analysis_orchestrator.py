@@ -32,7 +32,7 @@ class AnalysisOrchestrator:
         self._progress = progress_callback or (lambda msg, pct: None)
 
     async def run_full_analysis(
-        self, url: str, pagespeed_api_key: Optional[str] = None
+        self, url: str, pagespeed_api_key: Optional[str] = None, force: bool = False
     ) -> Dict[str, Any]:
         task_id = str(uuid.uuid4())
         started_at = datetime.now(timezone.utc)
@@ -59,14 +59,16 @@ class AnalysisOrchestrator:
             logger.error(f"Magento detection failed: {e}")
             magento_detection = {"is_magento": False, "error": str(e)}
 
-        if not magento_detection.get("is_magento"):
+        if not force and not magento_detection.get("is_magento"):
             return {
                 "id": task_id,
                 "url": url,
                 "created_at": started_at.isoformat(),
                 "status": "failed",
-                "error": "Magento not detected at this URL",
+                "error": "Magento not detected at this URL. Use --force to override.",
             }
+        if force and not magento_detection.get("is_magento"):
+            self._progress("Detection skipped (--force)", 25)
 
         # Optional PageSpeed pre-fetch (runs before registry analyzers so results
         # can be forwarded as kwargs to whichever analyzer needs them)

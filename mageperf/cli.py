@@ -106,6 +106,7 @@ def analyze(
     open_browser: bool = typer.Option(False, "--open", help="Open browser UI after analysis"),
     no_pagespeed: bool = typer.Option(False, "--no-pagespeed", help="Skip PageSpeed API"),
     timeout: Optional[float] = typer.Option(None, "--timeout", help="HTTP request timeout in seconds (default: 20)."),
+    force: bool = typer.Option(False, "--force", help="Skip Magento detection gate (use when store fingerprints are hardened)."),
 ):
     """Analyze a Magento store's performance, security, and configuration."""
     _validate_url(url)
@@ -135,7 +136,7 @@ def analyze(
                 from mageperf.utils.http_client import http_client as _hc
                 try:
                     orch = get_orchestrator(progress_callback=on_progress)
-                    return await orch.run_full_analysis(url, pagespeed_api_key=api_key)
+                    return await orch.run_full_analysis(url, pagespeed_api_key=api_key, force=force)
                 finally:
                     await _hc.close()
 
