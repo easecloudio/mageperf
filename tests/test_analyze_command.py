@@ -176,4 +176,4 @@ def test_analyze_surfaces_check_errors_in_summary(tmp_path):
         mock_orch.run_full_analysis = AsyncMock(return_value=MOCK_REPORT_WITH_ERRORS)
         result = runner.invoke(app, ["analyze", "https://demo.magento.com"])
     assert result.exit_code == 0
-    assert "search_engine" in result.output.lower() or "connection timeout" in result.output.lower()
+    assert "search_engine" in result.output.lower() and "connection timeout" in result.output.lower()
