@@ -92,3 +92,22 @@ def test_seo_score_zero_without_robots_txt(checker):
     results = {"robots_txt_found": False}
     score = checker._calculate_seo_score(results)
     assert score == 0.0
+
+
+def test_known_offenders_includes_required_entries(checker):
+    required_keys = [
+        "porto_theme",
+        "amasty_layered_navigation",
+        "wyomind_datafeed",
+        "xtento_export",
+        "amasty_shopby",
+        "mirasvit_search",
+        "mageplaza_onepage_checkout",
+        "weltpixel_google_analytics",
+    ]
+    for key in required_keys:
+        assert key in checker.KNOWN_PERFORMANCE_ISSUES, f"Missing offender: {key}"
+
+
+def test_known_offenders_minimum_count(checker):
+    assert len(checker.KNOWN_PERFORMANCE_ISSUES) >= 20

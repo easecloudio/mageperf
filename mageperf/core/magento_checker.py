@@ -23,11 +23,41 @@ class MagentoChecker:
     """Handles Magento-specific analysis and checks."""
     
     KNOWN_PERFORMANCE_ISSUES = {
-        "porto_theme": "Porto theme can be resource-heavy; ensure it's optimized.",
-        "amasty_layered_navigation": "Amasty Layered Navigation can add significant database load.",
-        "mirasvit_search": "Mirasvit Sphinx Search can be complex; verify its configuration.",
-        "mageplaza_onepage_checkout": "Mageplaza One-Page Checkout may have heavy JS; profile its performance.",
-        "weltpixel_google_analytics": "Weltpixel GA4 can impact frontend performance if not configured correctly."
+        # Themes
+        "porto_theme": "Porto theme is resource-heavy; enable CSS/JS merge and bundling, and verify Grunt is not running in production.",
+        "ultimo_theme": "Ultimo theme loads large theme assets; audit and defer non-critical CSS/JS.",
+        "claue_theme": "Claue theme has known JS weight issues; profile and defer unnecessary scripts.",
+        # Navigation / layered
+        "amasty_layered_navigation": "Amasty Layered Navigation adds significant database load on large catalogs; enable ajax-only mode.",
+        "amasty_shopby": "Amasty Shop By adds complex SQL; tune with proper indexes and Elasticsearch.",
+        "mirasvit_layered_navigation": "Mirasvit Layered Navigation can cause query explosion on large attribute sets.",
+        # Search
+        "mirasvit_search": "Mirasvit Sphinx Search adds a separate search daemon; verify it is running and indexed.",
+        "searchanise": "Searchanise loads external JS on every page; verify async loading is enabled.",
+        "klevu_search": "Klevu Search loads external JS synchronously on search pages by default; enable async.",
+        "doofinder": "Doofinder injects external scripts; verify deferred loading is configured.",
+        # Checkout
+        "mageplaza_onepage_checkout": "Mageplaza One-Page Checkout loads heavy JS bundles; profile and defer non-critical scripts.",
+        "amasty_onestepcheckout": "Amasty One Step Checkout adds significant JS weight; verify bundling is active.",
+        "iwd_opc": "IWD OPC loads additional CSS/JS; test checkout performance with and without it.",
+        # Analytics / Tracking
+        "weltpixel_google_analytics": "Weltpixel GA4 impacts frontend performance if not configured with async loading.",
+        "tagalys": "Tagalys injects tracking scripts that block rendering if loaded synchronously.",
+        "yotpo": "Yotpo widgets load external scripts; verify async/deferred loading.",
+        # Data feeds / Export
+        "wyomind_datafeed": "Wyomind DataFeed Manager generates large feeds via cron; schedule during off-peak hours.",
+        "xtento_export": "Xtento Export Profiles can lock tables during large exports; schedule carefully.",
+        "firebear_importexport": "Firebear Improved Import/Export can be memory-intensive; run via CLI, not admin.",
+        # Product pages / Catalog
+        "amasty_label": "Amasty Product Labels adds per-product queries; enable caching and test on large catalogs.",
+        "mageplaza_productslider": "Mageplaza Product Slider loads additional queries per slider instance.",
+        "mageworx_seobase": "MageWorx SEO Suite can add overhead to catalog URL generation on large catalogs.",
+        # Social / Reviews
+        "trustpilot": "Trustpilot widget loads external scripts; ensure async loading is enabled.",
+        # B2B / Pricing
+        "amasty_priceindex": "Amasty Advanced Price Index can slow reindexing on large catalogs with many customer groups.",
+        # Payment
+        "rvvup": "Rvvup payment widget loads external JS; verify deferred loading.",
     }
     
     def __init__(self):
