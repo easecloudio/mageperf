@@ -99,3 +99,40 @@ def test_compare_exits_1_on_missing_report(tmp_path):
                 "bbbbbbbb-0000-0000-0000-000000000000",
             ])
     assert result.exit_code == 1
+
+
+_REPORTS_LIST = [
+    {"id": "aaaaaaaa-0000-0000-0000-000000000001", "url": "https://store-a.com", "overall_score": 72, "created_at": "2026-04-14T10:00:00Z"},
+    {"id": "aaaaaaaa-0000-0000-0000-000000000002", "url": "https://store-b.com", "overall_score": 58, "created_at": "2026-04-10T10:00:00Z"},
+]
+
+def test_list_shows_index_numbers(tmp_path):
+    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"):
+        store_mock = MagicMock()
+        store_mock.list.return_value = _REPORTS_LIST
+        with patch("mageperf.cli.ReportStore", return_value=store_mock):
+            result = runner.invoke(app, ["list"])
+    assert result.exit_code == 0
+    # The # column header or index values must appear
+    assert "1" in result.output
+    assert "2" in result.output
+
+def test_open_by_numeric_index(tmp_path):
+    """mageperf open 1 should open the first report in the list."""
+    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"):
+        store_mock = MagicMock()
+        store_mock.list.return_value = _REPORTS_LIST
+        store_mock.get.return_value = _REPORTS_LIST[0]
+        with patch("mageperf.cli.ReportStore", return_value=store_mock), \
+             patch("mageperf.cli._open_report_in_browser") as mock_open:
+            result = runner.invoke(app, ["open", "1"])
+    assert result.exit_code == 0
+    mock_open.assert_called_once_with(_REPORTS_LIST[0]["id"], 4780)
+
+def test_open_by_out_of_range_index_exits_1(tmp_path):
+    with patch("mageperf.storage.store.REPORTS_DIR", tmp_path / "reports"):
+        store_mock = MagicMock()
+        store_mock.list.return_value = _REPORTS_LIST
+        with patch("mageperf.cli.ReportStore", return_value=store_mock):
+            result = runner.invoke(app, ["open", "99"])
+    assert result.exit_code == 1

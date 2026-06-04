@@ -173,12 +173,14 @@ def list_reports():
         )
         return
     table = Table(title="Saved Reports")
+    table.add_column("#", style="dim", justify="right")
     table.add_column("ID", style="cyan")
     table.add_column("URL")
     table.add_column("Score", justify="right")
     table.add_column("Date")
-    for r in reports:
+    for idx, r in enumerate(reports, start=1):
         table.add_row(
+            str(idx),
             r.get("id", ""),
             r.get("url", ""),
             str(r.get("overall_score", "?")),
@@ -188,11 +190,21 @@ def list_reports():
 
 
 @app.command("open")
-def open_report(report_id: str = typer.Argument(..., help="Report ID to open")):
+def open_report(report_id: str = typer.Argument(..., help="Report ID or list index (e.g. 1)")):
     """Open a saved report in the browser UI."""
     from mageperf.config import Config
 
-    if not ReportStore().get(report_id):
+    store = ReportStore()
+
+    if report_id.isdigit():
+        reports = store.list()
+        idx = int(report_id) - 1
+        if idx < 0 or idx >= len(reports):
+            console.print(f"[red]✗[/red] No report at index {report_id}. Run [bold]mageperf list[/bold] to see available reports.")
+            raise typer.Exit(code=1)
+        report_id = reports[idx]["id"]
+
+    if not store.get(report_id):
         console.print(f"[red]✗[/red] Report '{report_id}' not found.")
         raise typer.Exit(code=1)
     cfg = Config()
