@@ -1,14 +1,25 @@
 # mageperf
 
-**Free, open-source Magento performance analysis CLI by [EaseCloud](https://www.easecloud.io)**
+[![PyPI version](https://img.shields.io/pypi/v/easecloud-mageperf)](https://pypi.org/project/easecloud-mageperf/)
+[![npm version](https://img.shields.io/npm/v/@easecloud/mageperf)](https://www.npmjs.com/package/@easecloud/mageperf)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![GitHub](https://img.shields.io/badge/GitHub-easecloudio%2Fmageperf-blue)](https://github.com/easecloudio/mageperf)
 
-`mageperf` scans any Magento 2 store from your terminal — no account, no cloud, no data leaving your machine. It checks performance, security posture, and configuration best practices, then saves reports locally and optionally opens a browser UI.
+**Free, open-source Magento 2 performance analyzer CLI** — scans any store from your terminal with no account, no cloud, and no data leaving your machine.
 
----
+**Developed and maintained by [EaseCloud](https://easecloud.io)** — cloud-native, AI-driven, and Magento infrastructure solutions.
+
+## Quick Start
+
+```bash
+pip install easecloud-mageperf
+mageperf analyze https://your-store.com
+```
 
 ## Features
 
-- **Magento detection** — fingerprints Magento version, edition, and deployment mode; `--force` overrides for hardened stores
+- **Magento detection** — fingerprints version, edition, and deployment mode; `--force` overrides for hardened stores
 - **Performance analysis** — Core Web Vitals via Google PageSpeed Insights API (optional)
 - **Security checks** — exposed admin paths, debug mode, insecure headers
 - **Configuration checks** — caching, JS/CSS merging, CDN, production mode
@@ -19,8 +30,6 @@
 - **Local reports** — stored in `~/.easecloud/mageperf/reports/` as JSON
 - **Browser UI** — rich report viewer served locally on port 4780
 - **JSON output** — pipe results into scripts or AI agents
-
----
 
 ## Installation
 
@@ -50,9 +59,7 @@ docker run --rm easecloud/mageperf analyze https://your-store.com
 curl -fsSL https://raw.githubusercontent.com/easecloudio/mageperf/main/install.sh | bash
 ```
 
----
-
-## Quick start
+## Usage
 
 ```bash
 # Analyze a store
@@ -83,35 +90,31 @@ mageperf compare <before-id> <after-id>
 mageperf serve
 ```
 
----
-
 ## Commands
 
-| Command                              | Description                                          |
-| ------------------------------------ | ---------------------------------------------------- |
-| `mageperf analyze <url>`             | Run a full analysis                                  |
-| `mageperf list`                      | List saved reports (numbered)                        |
-| `mageperf open <id\|number>`         | Open a report in the browser UI (UUID or list index) |
-| `mageperf compare <id1> <id2>`       | Diff two reports: score delta, resolved findings     |
-| `mageperf serve`                     | Start the local report UI server                     |
-| `mageperf delete <id>`               | Delete a single report                               |
-| `mageperf clean`                     | Delete all saved reports                             |
-| `mageperf config set <key> <value>`  | Set a config value                                   |
-| `mageperf config get <key>`          | Get a config value                                   |
+| Command | Description |
+|---|---|
+| `mageperf analyze <url>` | Run a full analysis |
+| `mageperf list` | List saved reports (numbered) |
+| `mageperf open <id\|number>` | Open a report in the browser UI (UUID or list index) |
+| `mageperf compare <id1> <id2>` | Diff two reports: score delta, resolved findings |
+| `mageperf serve` | Start the local report UI server |
+| `mageperf delete <id>` | Delete a single report |
+| `mageperf clean` | Delete all saved reports |
+| `mageperf config set <key> <value>` | Set a config value |
+| `mageperf config get <key>` | Get a config value |
 
 ### `analyze` options
 
-| Flag                | Default   | Description                                              |
-| ------------------- | --------- | -------------------------------------------------------- |
-| `--format`          | `summary` | Output format: `summary`, `json`, `table`                |
-| `--output <file>`   | —         | Write JSON report to a file                              |
-| `--open`            | off       | Open browser UI after analysis                           |
-| `--no-pagespeed`    | off       | Skip Google PageSpeed API calls                          |
-| `--force`           | off       | Skip Magento detection gate (for hardened stores)        |
-| `--checks <subset>` | `all`     | Comma-separated checks to run: `performance`, `magento`, `all` |
-| `--timeout <secs>`  | 20        | HTTP request timeout in seconds                          |
-
----
+| Flag | Default | Description |
+|---|---|---|
+| `--format` | `summary` | Output format: `summary`, `json`, `table` |
+| `--output <file>` | — | Write JSON report to a file |
+| `--open` | off | Open browser UI after analysis |
+| `--no-pagespeed` | off | Skip Google PageSpeed API calls |
+| `--force` | off | Skip Magento detection gate (for hardened stores) |
+| `--checks <subset>` | `all` | Comma-separated checks to run: `performance`, `magento`, `all` |
+| `--timeout <secs>` | 20 | HTTP request timeout in seconds |
 
 ## Configuration
 
@@ -128,8 +131,6 @@ mageperf config set server-port 4780
 Get a free PageSpeed API key at [Google Cloud Console](https://console.cloud.google.com/).  
 Without a key, `mageperf` falls back to direct HTTP analysis.
 
----
-
 ## How it works
 
 Analysis runs in five layers:
@@ -143,8 +144,6 @@ Analysis runs in five layers:
 All checks use only publicly available data. No credentials, no admin access required.
 
 Any check that fails (timeout, connection error) surfaces in the terminal output with its error message rather than silently defaulting to zero.
-
----
 
 ## Output example
 
@@ -177,10 +176,6 @@ Score Comparison
 Resolved (1):
   ✓ Enable CSS merging
 ```
-
-> **Found critical issues?** EaseCloud provides [Magento performance optimization consulting](https://www.easecloud.io/magento-performance-optimization) — Core Web Vitals, caching strategy, infrastructure tuning, and more.
-
----
 
 ## Development
 
@@ -217,23 +212,39 @@ install.sh          Universal install script
 package.json        npm wrapper (@easecloud/mageperf)
 ```
 
----
+## About EaseCloud
+
+EaseCloud is a cloud consulting and solutions company specializing in:
+
+- Magento 2 performance optimization and infrastructure
+- Cloud-native application development on AWS, GCP, and Azure
+- AI and automation integrations
+- DevOps, infrastructure management, and CI/CD
+- Data analytics and BI platform consulting
+
+We built `mageperf` to give the Magento community a transparent, no-signup performance tool while demonstrating our expertise in store optimization and cloud infrastructure.
+
+If your team is running a high-traffic Magento store or needs help closing the gaps `mageperf` surfaces, [get in touch](https://easecloud.io) — we provide consulting, caching strategy, Core Web Vitals tuning, and managed infrastructure for merchants at scale.
+
+📧 [support@easecloud.io](mailto:support@easecloud.io)
+🌐 [easecloud.io](https://easecloud.io)
+
+## Bug Reports & Issues
+
+Found a bug or have a feature request?
+
+🐛 [Create a GitHub issue](https://github.com/easecloudio/mageperf/issues)
+
+Please include:
+- Magento version and edition (if known)
+- `mageperf` version (`mageperf --version`)
+- Steps to reproduce
+- Expected vs actual behavior
+- Any error messages or terminal output
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
-
----
-
-## Work with EaseCloud
-
-`mageperf` finds the problems. Need help fixing them?
-
-We offer end-to-end [Magento performance optimization](https://www.easecloud.io/magento-performance-optimization) — from diagnosis to implementation across caching, Core Web Vitals, infrastructure, and deployment.
-
-Contact: [support@easecloud.io](mailto:support@easecloud.io) · [easecloud.io](https://easecloud.io)
-
----
 
 ## License
 
