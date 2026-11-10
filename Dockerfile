@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 LABEL org.opencontainers.image.title="mageperf"
 LABEL org.opencontainers.image.description="EaseCloud Magento Performance Analyzer"
-LABEL org.opencontainers.image.source="https://github.com/easecloud/mageperf"
+LABEL org.opencontainers.image.source="https://github.com/easecloudio/mageperf"
 LABEL org.opencontainers.image.vendor="EaseCloud"
 LABEL org.opencontainers.image.licenses="MIT"
 

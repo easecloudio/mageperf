@@ -25,7 +25,7 @@ else
     esac
 
     BINARY_NAME="mageperf-${OS}-${ARCH}"
-    DOWNLOAD_URL="https://github.com/easecloud/mageperf/releases/latest/download/${BINARY_NAME}"
+    DOWNLOAD_URL="https://github.com/easecloudio/mageperf/releases/latest/download/${BINARY_NAME}"
     INSTALL_DIR="/usr/local/bin"
 
     echo "Downloading from GitHub Releases..."
