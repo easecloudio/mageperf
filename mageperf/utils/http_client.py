@@ -3,7 +3,29 @@ from typing import Optional
 
 import httpx
 
+import httpcore
+
 from mageperf.utils.logger import logger
+from mageperf.utils.security import SSRFGuardBackend
+
+
+def _guarded_transport(limits: httpx.Limits) -> httpx.AsyncHTTPTransport:
+    """Build a transport whose every TCP connection passes the SSRF check.
+
+    The analyzed site controls redirects and asset URLs, so validating only
+    the URL typed by the user is not enough.
+    """
+    transport = httpx.AsyncHTTPTransport(limits=limits)
+    transport._pool = httpcore.AsyncConnectionPool(
+        ssl_context=httpx.create_ssl_context(),
+        max_connections=limits.max_connections,
+        max_keepalive_connections=limits.max_keepalive_connections,
+        keepalive_expiry=limits.keepalive_expiry,
+        http1=True,
+        http2=False,
+        network_backend=SSRFGuardBackend(),
+    )
+    return transport
 
 
 class HTTPClient:
@@ -23,7 +45,12 @@ class HTTPClient:
             self._client = httpx.AsyncClient(
                 timeout=timeout,
                 limits=limits,
+                transport=_guarded_transport(limits),
+                # Each redirect hop is sent through the guarded transport, so
+                # redirect targets are validated like any other connection.
                 follow_redirects=True,
+                # Env proxies would get their own unguarded transports.
+                trust_env=False,
                 headers={"User-Agent": "mageperf/0.1.0 (EaseCloud; +https://easecloud.io)"},
             )
         return self._client
